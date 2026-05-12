@@ -293,7 +293,7 @@ namespace MTConnect.Shdr
                                 }
 
                                 // Send PING Heartbeat if needed
-                                if ((!IgnoreHeartbeatOnChange || ((now - lastResponse) > _heartbeat * 10000)) && ((now - _lastHeartbeat) > _heartbeat * 10000))
+                                if ((!IgnoreHeartbeatOnChange || ((now - lastResponse) > _heartbeat * 10000)) || ((now - _lastHeartbeat) > _heartbeat * 10000))
                                 {
                                     messageBytes = Encoding.ASCII.GetBytes(PingMessage);
                                     stream.Write(messageBytes, 0, messageBytes.Length);
