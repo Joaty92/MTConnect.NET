@@ -1,0 +1,22 @@
+# Python build/runtime artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# PyInstaller build output
+build/
+dist/
+*.spec
+
+# Runtime data
+pki/                    # client cert + private key for OPC UA secured connects
+generated/              # profile YAML + template XML output land here by default
+test/                   # ad-hoc test files
