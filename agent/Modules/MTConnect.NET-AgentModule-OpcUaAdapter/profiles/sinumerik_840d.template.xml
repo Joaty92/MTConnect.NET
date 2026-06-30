@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sinumerik 840D device template — 5-axis trunnion configuration (X, Y, Z + A tilt, C rotary table).
+
+  Structural patterns adapted from agent/MTConnect.NET-Agent/devices/mazak.xml (the TrakHound
+  reference milling-machine device) and the MTConnect OPC UA Companion Specification V2.00.
+
+  This file is loaded by the OpcUaAdapter module ONLY when there is no user-authored
+  devices/<deviceKey>.xml. The module rewrites the Device's id/uuid/name to the deviceKey
+  configured in agent.config.yaml before pushing it to the agent broker.
+
+  CONDITION items below are declared but not populated by v1 of the OpcUaAdapter — the alarm-
+  tree mapping is intentionally deferred. The items are kept in the model so a future v2 (or
+  another module) can populate them without an XML rewrite.
+
+  For a 3-axis machine: delete the two <Rotary id="a"…> and <Rotary id="c"…> blocks below,
+  and remove the matching mappings from profiles/sinumerik_840d.yaml.
+-->
+<Device id="placeholder" name="placeholder" uuid="placeholder">
+  <Description manufacturer="Siemens" model="Sinumerik 840D">5-axis machining centre</Description>
+
+  <DataItems>
+    <DataItem category="EVENT" id="avail" type="AVAILABILITY"/>
+    <DataItem category="EVENT" id="emoperating" subType="OPERATING" type="EQUIPMENT_MODE"/>
+    <DataItem category="EVENT" id="empowered" subType="POWERED" type="EQUIPMENT_MODE"/>
+    <DataItem category="EVENT" discrete="true" id="asset_chg" type="ASSET_CHANGED"/>
+    <DataItem category="EVENT" id="asset_rem" type="ASSET_REMOVED"/>
+  </DataItems>
+
+  <Components>
+
+    <!-- ======================================================================
+         Axes: 3 linear (X, Y, Z) + 2 rotary (A tilt, C table) + Spindle
+         ====================================================================== -->
+    <Axes id="axes" name="Axes">
+      <DataItems>
+        <DataItem category="CONDITION" id="servo" type="ACTUATOR"/>
+        <DataItem category="CONDITION" id="spindle_cond" type="SYSTEM"/>
+      </DataItems>
+      <Components>
+
+        <Linear id="x" name="X">
+          <DataItems>
+            <DataItem category="SAMPLE" id="xabs" subType="ACTUAL" type="POSITION" units="MILLIMETER" coordinateSystem="MACHINE"/>
+            <DataItem category="SAMPLE" id="xload" type="LOAD" units="PERCENT"/>
+            <DataItem category="CONDITION" id="xtravel" type="POSITION"/>
+            <DataItem category="CONDITION" id="xservo" type="ACTUATOR"/>
+          </DataItems>
+        </Linear>
+
+        <Linear id="y" name="Y">
+          <DataItems>
+            <DataItem category="SAMPLE" id="yabs" subType="ACTUAL" type="POSITION" units="MILLIMETER" coordinateSystem="MACHINE"/>
+            <DataItem category="SAMPLE" id="yload" type="LOAD" units="PERCENT"/>
+            <DataItem category="CONDITION" id="ytravel" type="POSITION"/>
+            <DataItem category="CONDITION" id="yservo" type="ACTUATOR"/>
+          </DataItems>
+        </Linear>
+
+        <Linear id="z" name="Z">
+          <DataItems>
+            <DataItem category="SAMPLE" id="zabs" subType="ACTUAL" type="POSITION" units="MILLIMETER" coordinateSystem="MACHINE"/>
+            <DataItem category="SAMPLE" id="zload" type="LOAD" units="PERCENT"/>
+            <DataItem category="CONDITION" id="ztravel" type="POSITION"/>
+            <DataItem category="CONDITION" id="zservo" type="ACTUATOR"/>
+          </DataItems>
+        </Linear>
+
+        <!-- 4th axis: A (tilt). Delete this block for 3-axis machines. -->
+        <Rotary id="a" name="A">
+          <DataItems>
+            <DataItem category="SAMPLE" id="aabs" subType="ACTUAL" type="ANGLE" units="DEGREE" coordinateSystem="MACHINE"/>
+            <DataItem category="SAMPLE" id="aload" type="LOAD" units="PERCENT"/>
+            <DataItem category="CONDITION" id="atravel" type="ANGLE"/>
+            <DataItem category="CONDITION" id="aservo" type="ACTUATOR"/>
+          </DataItems>
+        </Rotary>
+
+        <!-- 5th axis: C (rotary table). Delete this block for 3-axis machines. -->
+        <Rotary id="c" name="C">
+          <DataItems>
+            <DataItem category="SAMPLE" id="cabs" subType="ACTUAL" type="ANGLE" units="DEGREE" coordinateSystem="MACHINE"/>
+            <DataItem category="SAMPLE" id="cload" type="LOAD" units="PERCENT"/>
+            <DataItem category="CONDITION" id="ctravel" type="ANGLE"/>
+            <DataItem category="CONDITION" id="cservo" type="ACTUATOR"/>
+          </DataItems>
+        </Rotary>
+
+        <!-- Spindle: rotary axis with the SPINDLE_SPEED data item identifying its role. -->
+        <Rotary id="spindle" name="Spindle">
+          <DataItems>
+            <DataItem category="SAMPLE" id="srpm" subType="ACTUAL" type="ROTARY_VELOCITY" units="REVOLUTION/MINUTE" nativeUnits="REVOLUTION/MINUTE"/>
+            <DataItem category="SAMPLE" id="sso" type="ROTARY_VELOCITY_OVERRIDE" units="PERCENT"/>
+            <DataItem category="SAMPLE" id="sload" type="LOAD" units="PERCENT"/>
+            <DataItem category="EVENT" id="spindle_state" type="ROTARY_MODE"/>
+            <DataItem category="CONDITION" id="spindle_temp_cond" type="TEMPERATURE"/>
+          </DataItems>
+        </Rotary>
+
+      </Components>
+    </Axes>
+
+    <!-- ======================================================================
+         Controller: program, execution, path feed, tool
+         ====================================================================== -->
+    <Controller id="controller" name="Controller">
+      <DataItems>
+        <DataItem category="EVENT" id="controller_mode" type="CONTROLLER_MODE"/>
+        <DataItem category="EVENT" id="estop" type="EMERGENCY_STOP"/>
+        <DataItem category="CONDITION" id="system" type="SYSTEM"/>
+        <DataItem category="CONDITION" id="logic" type="LOGIC_PROGRAM"/>
+        <DataItem category="CONDITION" id="comms" type="COMMUNICATIONS"/>
+      </DataItems>
+      <Components>
+        <Path id="path" name="path">
+          <DataItems>
+            <DataItem category="EVENT" id="program" type="PROGRAM"/>
+            <DataItem category="EVENT" id="execution" type="EXECUTION"/>
+            <DataItem category="EVENT" id="block" type="BLOCK"/>
+            <DataItem category="SAMPLE" id="line" type="LINE_NUMBER" subType="ABSOLUTE"/>
+            <DataItem category="SAMPLE" id="pfr" type="PATH_FEEDRATE" units="MILLIMETER/MINUTE" subType="ACTUAL"/>
+            <DataItem category="SAMPLE" id="pfo" type="PATH_FEEDRATE_OVERRIDE" units="PERCENT"/>
+            <DataItem category="EVENT" id="tool_id" type="TOOL_NUMBER"/>
+            <DataItem category="EVENT" id="tool_offset" type="TOOL_OFFSET"/>
+            <DataItem category="CONDITION" id="path_motion" type="MOTION_PROGRAM"/>
+          </DataItems>
+        </Path>
+      </Components>
+    </Controller>
+
+  </Components>
+</Device>

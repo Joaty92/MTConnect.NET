@@ -60,6 +60,8 @@
 		<ProjectReference Include="..\Modules\MTConnect.NET-AgentModule-ShdrAdapter\MTConnect.NET-AgentModule-ShdrAdapter.csproj" />
 		<ProjectReference Include="..\Modules\MTConnect.NET-AgentModule-SparkplugBRelay\MTConnect.NET-AgentModule-SparkplugBRelay.csproj"
 			Condition="'$(TargetFramework)' == 'net6.0' OR '$(TargetFramework)' == 'net7.0' OR '$(TargetFramework)' == 'net8.0' OR '$(TargetFramework)' == 'net9.0'" />
+		<ProjectReference Include="..\Modules\MTConnect.NET-AgentModule-OpcUaAdapter\MTConnect.NET-AgentModule-OpcUaAdapter.csproj"
+			Condition="'$(TargetFramework)' == 'net6.0' OR '$(TargetFramework)' == 'net7.0' OR '$(TargetFramework)' == 'net8.0' OR '$(TargetFramework)' == 'net9.0'" />
 		<ProjectReference Include="..\Processors\MTConnect.NET-AgentProcessor-Python\MTConnect.NET-AgentProcessor-Python.csproj" />
 	</ItemGroup>
 
