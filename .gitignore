@@ -326,3 +326,8 @@ docs/.vitepress/.temp/
 # on every CI run; keep the section index but ignore the per-type pages).
 docs/api/**
 !docs/api/index.md
+
+# Deployment artefacts — the docker save output. Large binary; ship out-of-band.
+# See deploy/README.md for the shipping workflow.
+deploy/*.tar
+deploy/*.tar.gz

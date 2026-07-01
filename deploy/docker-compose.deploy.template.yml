@@ -1,0 +1,38 @@
+# Template docker-compose.yml for target-site deployments.
+# Copy this file into the target site's config folder (alongside config/,
+# devices/, profiles/, logs/) and rename to `docker-compose.yml`.
+#
+# Unlike the dev docker-compose.yml at deployment/ which builds
+# from source (context: C:/dev/MTConnect.NET), this file references the
+# pre-built image loaded from a .tar via `docker load`. No source tree
+# needed on the target.
+
+services:
+
+  mtconnect-agent-spb:
+
+    # Image tag must match one of the tags inside the .tar you loaded.
+    # `docker load` prints them ("Loaded image: <tag>") as they land.
+    image: mtconnect-agent-spb:1.0.0
+
+    container_name: mtconnect-agent-spb
+
+    # Restart on crash and after machine reboot, but stay stopped if the
+    # operator ran `docker compose stop` intentionally.
+    restart: unless-stopped
+
+    ports:
+      # Left side is the HOST port; right side is the container port (matches
+      # the http-server module's `port:` in agent.config.yaml). Change the
+      # left number if 5003 conflicts with something else on this target.
+      - "5003:5000"
+
+    volumes:
+      # All paths are resolved relative to THIS compose file's location.
+      # Ship the site folder as-is; the mounts wire up automatically.
+
+      - ./config/agent.config.yaml:/app/agent.config.yaml
+      - ./config/NLog.config:/app/NLog.config
+      - ./devices:/app/devices
+      - ./profiles:/app/profiles
+      - ./logs:/app/logs
