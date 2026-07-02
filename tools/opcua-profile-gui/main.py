@@ -847,11 +847,26 @@ async def _generate_self_signed_cert(cert_path: Path, key_path: Path) -> None:
 # ----------------------------------------------------------------------------
 
 
+def _app_dir() -> Path:
+    """Where 'alongside the program' resolves at runtime.
+
+    When running from source (dev): the folder containing this file.
+    When running from a PyInstaller-frozen bundle: the folder containing the
+    .exe (not the temporary _internal / _MEIPASS extraction dir). This means
+    pki/, generated/, etc. sit next to the exe wherever the operator dropped
+    it — no hardcoded paths, no permissions-in-Program-Files headaches.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent
+
+
 def pki_dir() -> Path:
-    """Project-local pki/ folder for client cert + key. Kept outside .venv so
-    re-creating the venv (e.g. for a Python upgrade) doesn't wipe the cert and
-    force a re-acceptance on the server side."""
-    d = Path(__file__).parent / "pki"
+    """Local pki/ folder for the client cert + key. Sits alongside the
+    program (main.py in dev, the .exe when frozen) so re-creating the venv
+    or moving the built folder never wipes the cert and forces a re-accept
+    on the server side."""
+    d = _app_dir() / "pki"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -1626,10 +1641,15 @@ class MainWindow(QMainWindow):
         name, ok = self._ask_profile_name()
         if not ok or not name:
             return
+        # Default save dir sits alongside the running program (source folder in
+        # dev, .exe folder when frozen). Auto-create it so the dialog opens
+        # somewhere sensible even on first run.
+        default_out = _app_dir() / "generated"
+        default_out.mkdir(parents=True, exist_ok=True)
         out_dir = QFileDialog.getExistingDirectory(
             self,
             "Choose folder for generated files",
-            str(Path(__file__).parent / "generated"),
+            str(default_out),
         )
         if not out_dir:
             return

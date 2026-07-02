@@ -51,13 +51,14 @@ docker compose up -d
 
 ## What's NOT in this starter-kit
 
-- **The compiled Docker image** (`mtconnect-agent-spb-<version>.tar`). Ships alongside this folder — see the parent `deploy/README.md` for the build/save workflow. The `.tar` is a large binary that lives outside version control.
-- **Site-specific device XMLs and OPC UA profiles.** Those are authored per-machine using the tools in `../../tools/opcua-profile-gui/` (for OPC UA) or hand-written from a template like `haas-agent/devices/device.xml` (for SHDR / Haas Ethernet).
+- **The compiled Docker image** (`mtconnect-agent-spb-<version>.tar`). Ships alongside this folder — see the parent [`deploy/README.md`](../README.md) for the build/save workflow. The `.tar` is a large binary that lives outside version control.
+- **Site-specific device XMLs and OPC UA profiles.** Those are authored per-machine using the OPC UA profile generator at [`tools/opcua-profile-gui/`](../../tools/opcua-profile-gui/) or hand-written for SHDR / Haas Ethernet.
 
 ## Ship it
 
 To send a new site their complete deployment bundle:
 
-1. Zip this folder: `Compress-Archive -Path deploy\starter-kit -DestinationPath siteA-starter.zip`
-2. Also send the current `.tar`: `deploy\mtconnect-agent-spb-1.0.1.tar`
-3. Target-side steps: unzip, `docker load -i <tar>`, edit config, `docker compose up -d`. No git clone, no build, no source code required.
+1. Copy this `starter-kit/` folder to a staging area, rename per site, edit the config.
+2. Zip the copied folder: `Compress-Archive -Path <staging>/SiteA -DestinationPath <staging>/SiteA.zip`
+3. Also send the current `.tar` (from the parent `deploy/` folder): `mtconnect-agent-spb-<version>.tar`
+4. Target-side steps: unzip, `docker load -i <tar>`, edit config, `docker compose up -d`. No git clone, no build, no source code required.

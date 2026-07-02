@@ -1,6 +1,8 @@
 # MTConnect.NET — Deploying the Agent to a Factory Server
 
-This folder holds the tools you need to ship the MTConnect agent to a factory server **without giving that server the source code**. This README walks through it plainly, no assumed Docker expertise.
+This folder holds the tools you need to ship the MTConnect agent to a factory server **without giving that server the source code**. Layman-friendly walkthrough, no assumed Docker expertise.
+
+Paths in this doc are written relative to **this repo's root** (where the `Dockerfile` and `README.md` at the top live). Adjust for your local checkout.
 
 ---
 
@@ -24,76 +26,71 @@ Now the actual steps.
 
 You only do this **once per version**. Do it again when the source code changes and you want to ship an update.
 
+**Prerequisite:** you have this repo cloned somewhere, and a "site config folder" alongside it (see [Phase 2](#phase-2--prepare-the-site-folder-still-on-your-dev-machine)) — a folder containing a `docker-compose.yml` with `build: context: <path-to-this-repo>` and `dockerfile: Dockerfile`. If you don't have one yet, use [`deploy/starter-kit/`](starter-kit/) as the template.
+
 ```powershell
-# 1. Build the image from source.
-#    This uses the docker-compose.yml at deployment, which
-#    references the Dockerfile at c:\dev\MtConnect.net\Dockerfile.
-cd c:\dev\deployment
+# 1. Build the image from source, from your site config folder.
+#    That folder's docker-compose.yml references the Dockerfile in this repo.
+cd <path-to-your-site-config-folder>
 docker compose build --no-cache
 
 # 2. Give it a distributable name.
 #    Compose auto-names the image with an ugly folder-based name.
 #    Retag it as "mtconnect-agent-spb" with a version.
-docker tag deployment-mtconnect-agent-spb:latest mtconnect-agent-spb:1.0.0
-docker tag deployment-mtconnect-agent-spb:latest mtconnect-agent-spb:latest
+docker tag <folder-name>-mtconnect-agent-spb:latest mtconnect-agent-spb:1.0.0
+docker tag <folder-name>-mtconnect-agent-spb:latest mtconnect-agent-spb:latest
 
-# 3. Pack the image into a shippable .tar file.
-#    Both tags travel inside the .tar.
-cd c:\dev\MtConnect.net\deploy
+# 3. Pack the image into a shippable .tar file, into this repo's deploy/ folder.
+cd <path-to-this-repo>/deploy
 docker save -o mtconnect-agent-spb-1.0.0.tar mtconnect-agent-spb:1.0.0 mtconnect-agent-spb:latest
 
 # 4. Confirm size (typically ~40-60 MB — Docker compresses well).
 ls -lh mtconnect-agent-spb-1.0.0.tar
 ```
 
-After this, `c:\dev\MtConnect.net\deploy\mtconnect-agent-spb-1.0.0.tar` is the **one artefact from the source repo** that goes to the target.
+After this, `<repo>/deploy/mtconnect-agent-spb-1.0.0.tar` is the **one artefact from the source repo** that goes to the target. It's gitignored — ship it out-of-band (SFTP / USB / private artefact store).
 
 ---
 
 ## Phase 2 — Prepare the site folder (still on your dev machine)
 
-**Easiest path — use the starter-kit.** This folder contains `starter-kit/` — a ready-to-ship bundle with the compose file, a commented `agent.config.yaml`, empty `devices/` and `profiles/` folders, `logs/`, and a target-side README. To prep a new site, just copy it:
+**Easiest path — use the starter-kit.** This folder contains [`starter-kit/`](starter-kit/) — a ready-to-ship bundle with the compose file, a commented `agent.config.yaml`, empty `devices/` and `profiles/` folders, `logs/`, and a target-side README. To prep a new site, just copy it:
 
 ```powershell
-# Copy the starter-kit as-is, rename for the site
-cp -r c:\dev\MtConnect.net\deploy\starter-kit c:\Ship\SiteA
+# Copy the starter-kit as-is, rename for the site (paths are examples — put it wherever you like)
+cp -r <path-to-this-repo>/deploy/starter-kit <ship-staging>/SiteA
 ```
 
-Then edit `c:\Ship\SiteA\config\agent.config.yaml` — uncomment the module blocks you need (mqtt-relay, sparkplug-relay, opcua-adapter, shdr-adapter, haas-ethernet) and fill in the site's IPs, broker hostnames, deviceKeys. Drop any per-machine device XMLs into `devices/` and OPC UA profile bundles into `profiles/`.
+Then edit `<ship-staging>/SiteA/config/agent.config.yaml` — uncomment the module blocks you need (mqtt-relay, sparkplug-relay, opcua-adapter, shdr-adapter, haas-ethernet) and fill in the site's IPs, broker hostnames, deviceKeys. Drop any per-machine device XMLs into `devices/` and OPC UA profile bundles into `profiles/`.
 
-That's it. Zip `c:\Ship\SiteA\`, ship alongside the `.tar`, done.
+That's it. Zip `<ship-staging>/SiteA/`, ship alongside the `.tar`, done.
 
 **Alternative (legacy) path — build the site folder from scratch:**
 
-Every factory site needs a **config folder**. This holds the per-site YAML/XML — which machines are on this network, what IPs, what profile per machine. It's small (a few KB).
-
-You have one already at `c:\dev\deployment\`. To prepare a **new** site (say, "Site B"):
+If for some reason you want to assemble the site folder manually rather than starting from the kit:
 
 ```powershell
-# 1. Copy the site folder as a starting point.
-cp -r c:\dev\deployment c:\dev\deployment-SiteB
-cd c:\dev\deployment-SiteB
+# 1. Make an empty site folder anywhere
+mkdir <ship-staging>/SiteA
+cd <ship-staging>/SiteA
 
-# 2. Swap the compose file for the deployment version.
-#    The dev one builds from source (needs C:\dev\MtConnect.net on disk).
-#    The deploy one just references the loaded image (no source needed).
-copy c:\dev\MtConnect.net\deploy\docker-compose.deploy.template.yml docker-compose.yml
+# 2. Grab the deploy-mode compose template (references image:, not build:).
+copy <path-to-this-repo>/deploy/docker-compose.deploy.template.yml docker-compose.yml
 
-# 3. Edit config\agent.config.yaml for this site:
-#    - The Sparkplug groupId / nodeId (unique per site if you want separate namespaces)
-#    - The OPC UA endpoints, SHDR adapter IPs, MQTT broker for this site's network
-#    - The deviceKeys and devices/*.xml files for machines here
+# 3. Create the mount folders + drop in a starter config
+mkdir config devices profiles logs
+# then hand-populate config/agent.config.yaml and config/NLog.config
 ```
 
-The site folder is now ready to ship. It contains:
+Whichever route, the resulting site folder needs to look like this:
 
 ```
-deployment-SiteB/
-├── docker-compose.yml            ← deploy template (references image, not build)
+SiteA/
+├── docker-compose.yml            ← references image: mtconnect-agent-spb:1.0.0, no build: block
 ├── config/
-│   ├── agent.config.yaml         ← site-specific edits made
+│   ├── agent.config.yaml         ← edited for this site
 │   └── NLog.config
-├── devices/                       ← per-machine XMLs
+├── devices/                       ← per-machine XMLs (SHDR / hand-authored)
 ├── profiles/                      ← OPC UA profile bundles
 └── logs/                          ← empty until first run
 ```
@@ -104,8 +101,8 @@ deployment-SiteB/
 
 **Two things travel to the target:**
 
-1. `c:\dev\MtConnect.net\deploy\mtconnect-agent-spb-1.0.0.tar` (the packed image — ~46 MB)
-2. `c:\dev\deployment-SiteB\` (the site config folder — a few KB, zip it up)
+1. `<repo>/deploy/mtconnect-agent-spb-1.0.0.tar` (the packed image — ~46 MB)
+2. `<ship-staging>/SiteA/` (the site config folder — a few KB; zip it up first)
 
 Ship however you like — USB drive, SFTP, email, S3 bucket, shared drive. Nothing about them is Docker-specific during transit; they're just files.
 
@@ -117,15 +114,15 @@ The target machine has **Docker installed** but no source code and no images yet
 
 ```powershell
 # 1. Put the shipped files somewhere on disk. Convention (any location works):
-#    C:\Factories\SiteB\
-#    ├── deployment-SiteB\    ← the unzipped site config folder
+#    <install-root>/
+#    ├── SiteA/                              ← the unzipped site config folder
 #    │   ├── docker-compose.yml
-#    │   ├── config\ devices\ profiles\ logs\
-#    └── mtconnect-agent-spb-1.0.0.tar    ← put it next to the site folder, or anywhere reachable
+#    │   ├── config/  devices/  profiles/  logs/
+#    └── mtconnect-agent-spb-1.0.0.tar        ← put it wherever's reachable
 
 # 2. Unpack the image into Docker's internal storage.
 #    You can be in ANY folder for this step — the -i flag takes the .tar path.
-cd C:\Factories\SiteB
+cd <install-root>
 docker load -i mtconnect-agent-spb-1.0.0.tar
 # You'll see:
 #   Loaded image: mtconnect-agent-spb:1.0.0
@@ -137,12 +134,11 @@ docker load -i mtconnect-agent-spb-1.0.0.tar
 
 # 3. Verify Docker knows about the image.
 docker images mtconnect-agent-spb
-# You should see BOTH tags (1.0.0 and latest) pointing at the same image ID.
 
 # 4. Start the agent — from INSIDE the site config folder.
 #    The compose file references the image by name (mtconnect-agent-spb:1.0.0),
 #    and mounts the config/devices/profiles folders from THIS folder.
-cd C:\Factories\SiteB\deployment-SiteB
+cd <install-root>/SiteA
 docker compose up -d
 
 # 5. Watch it come up.
@@ -152,64 +148,64 @@ docker logs --follow mtconnect-agent-spb
 
 Once it's up, browse `http://<target-server>:5003/probe` to confirm the MTConnect endpoint is live.
 
-**The `.tar` file is now optional.** You can delete `C:\Factories\SiteB\mtconnect-agent-spb-1.0.0.tar` and everything keeps working. Docker only cares about what's in its internal store now. Keep it around only if you want an offline backup for a rainy day.
+**The `.tar` file is now optional.** You can delete `<install-root>/mtconnect-agent-spb-1.0.0.tar` and everything keeps working. Docker only cares about what's in its internal store now. Keep it around only if you want an offline backup for a rainy day.
 
 ---
 
 ## Concrete worked example — shipping to "Site B"
 
 Say Site B has:
-- One Siemens S7-1500 PLC controlling a coolant system (like your `304cu` machine)
+- One Siemens S7-1500 PLC controlling a coolant system
 - No CNCs
 - MQTT broker at `192.168.20.10`
 
 ### On the dev machine
 
 ```powershell
+# Assume this repo is cloned at <repo>, and you have a working site folder <site>.
+
 # Build + pack the image (only if you haven't already for this version)
-cd c:\dev\deployment && docker compose build --no-cache
-docker tag deployment-mtconnect-agent-spb:latest mtconnect-agent-spb:1.0.0
-cd c:\dev\MtConnect.net\deploy
+cd <site>
+docker compose build --no-cache
+docker tag <folder-name>-mtconnect-agent-spb:latest mtconnect-agent-spb:1.0.0
+
+cd <repo>/deploy
 docker save -o mtconnect-agent-spb-1.0.0.tar mtconnect-agent-spb:1.0.0 mtconnect-agent-spb:latest
 
-# Prepare the site folder
-cp -r c:\dev\deployment c:\dev\deployment-SiteB
-copy c:\dev\MtConnect.net\deploy\docker-compose.deploy.template.yml c:\dev\deployment-SiteB\docker-compose.yml
+# Prepare Site B's folder from the starter-kit
+cp -r <repo>/deploy/starter-kit <ship>/SiteB
 
-# Edit the site config
-# (open c:\dev\deployment-SiteB\config\agent.config.yaml in an editor)
-#  - Change groupId/nodeId in sparkplug-relay to something like SiteB / Coolant
-#  - Change MQTT broker to 192.168.20.10
-#  - Remove the shdr-adapter blocks (no CNCs at Site B)
-#  - Keep the opcua-adapter block, update endpoint to Site B's S7 IP
+# Edit <ship>/SiteB/config/agent.config.yaml:
+#  - Uncomment sparkplug-relay, set groupId/nodeId to something like SiteB / Coolant
+#  - Uncomment mqtt-relay, set server to 192.168.20.10
+#  - Uncomment opcua-adapter, set endpoint to Site B's S7 IP, deviceKey, profile
 
 # Zip the site folder for shipping
-Compress-Archive -Path c:\dev\deployment-SiteB -DestinationPath c:\Ship\deployment-SiteB.zip
+Compress-Archive -Path <ship>/SiteB -DestinationPath <ship>/SiteB.zip
 ```
 
-Now `c:\Ship\` contains:
-- `mtconnect-agent-spb-1.0.0.tar`  (from `c:\dev\MtConnect.net\deploy\`)
-- `deployment-SiteB.zip`  (the config folder, zipped)
+Now `<ship>/` contains:
+- `mtconnect-agent-spb-1.0.0.tar`  (from `<repo>/deploy/`)
+- `SiteB.zip`                     (the site config folder, zipped)
 
 Ship both to Site B via SFTP / USB / whatever.
 
 ### On Site B's target server
 
 ```powershell
-# Someone puts the shipped files at C:\Factories\
+# Someone puts the shipped files at <install-root>\, e.g. C:\Factories\
 # C:\Factories\
 #   ├── mtconnect-agent-spb-1.0.0.tar
-#   └── deployment-SiteB.zip
+#   └── SiteB.zip
 
-# Unzip the config folder
 cd C:\Factories
-Expand-Archive deployment-SiteB.zip .
+Expand-Archive SiteB.zip .
 
 # Load the image
 docker load -i mtconnect-agent-spb-1.0.0.tar
 
 # Start the agent
-cd deployment-SiteB
+cd SiteB
 docker compose up -d
 
 # Check it's running
@@ -227,12 +223,12 @@ Same process, minus preparing the site folder from scratch:
 
 ```powershell
 # On the target — ship the new .tar to the target machine first, then:
-cd C:\Factories
-docker compose -f deployment-SiteB\docker-compose.yml down    # stop old container
-docker load -i mtconnect-agent-spb-1.0.1.tar                             # load new image
-# Edit deployment-SiteB\docker-compose.yml, change the image tag:
+cd <install-root>
+docker compose -f SiteB\docker-compose.yml down    # stop old container
+docker load -i mtconnect-agent-spb-1.0.1.tar        # load new image
+# Edit SiteB\docker-compose.yml, change the image tag:
 #   image: mtconnect-agent-spb:1.0.1     (was 1.0.0)
-docker compose -f deployment-SiteB\docker-compose.yml up -d   # start new container
+docker compose -f SiteB\docker-compose.yml up -d   # start new container
 ```
 
 Optionally clean up the old image afterwards:

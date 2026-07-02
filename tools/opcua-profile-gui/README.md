@@ -2,14 +2,18 @@
 
 PySide6 desktop app for selecting OPC UA Variables from a server and generating an MTConnect profile YAML + device template for use with [`MTConnect.NET-AgentModule-OpcUaAdapter`](../../agent/Modules/MTConnect.NET-AgentModule-OpcUaAdapter/).
 
-This is the canonical source location. A built `.exe` for everyday use is produced via PyInstaller (see [Packaging](#packaging) below) and conventionally lives outside the repo (e.g. `C:\Tools\OPCUAProfilexmlGUI\dist\`) so the compiled binary isn't committed.
+This folder is the **canonical source location**. Ship a built `.exe` (produced via PyInstaller — see [Packaging](#packaging) below) to any workstation that needs to author OPC UA profiles; the source stays in the repo, the binary is gitignored.
 
 ## Run from source
 
-First time only:
+Prerequisite: **Python 3.11+** on PATH (tested through 3.14.2 with PySide6 6.11 / asyncua 2.0 / qasync 0.28).
+
+First time only, from this folder:
 
 ```powershell
-cd c:\dev\MtConnect.net\tools\opcua-profile-gui
+# Windows PowerShell (from wherever you cloned the repo)
+cd tools\opcua-profile-gui
+
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 ```
@@ -20,11 +24,18 @@ Subsequent runs:
 .venv\Scripts\python.exe main.py
 ```
 
-(Requires Python 3.11+. Tested on 3.14.2 with PySide6 6.11 / asyncua 2.0 / qasync 0.28.)
+Or on Linux/macOS:
+
+```bash
+cd tools/opcua-profile-gui
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python main.py
+```
 
 ## Workflow
 
-1. Click **Connect...**. Enter the OPC UA endpoint (defaults to `opc.tcp://192.168.0.1:4840`), an optional root NodeId to start the browse from (e.g. `ns=3;s=PLC` for an S7-1500 to skip server diagnostics), and a max browse depth.
+1. Click **Connect...**. Enter the OPC UA endpoint (e.g. `opc.tcp://<plc-ip>:4840`), an optional root NodeId to start the browse from (e.g. `ns=3;s=PLC` for an S7-1500 to skip server diagnostics), and a max browse depth.
 2. App connects, walks the address space, and shows the result as a tree with checkboxes.
 3. **Filter** by typing in the search box (matches on BrowseName, case-insensitive, keeps ancestors visible).
 4. **Tick** Variables you want to subscribe to. Ticking a folder cascades to its children.
@@ -33,7 +44,7 @@ Subsequent runs:
    - `<name>.yaml` — NodeId → DataItem mappings
    - `<name>.template.xml` — MTConnect device template, components grouped by parent Object
 
-7. Copy the two files into `c:\dev\deployment\profiles\`, reference the profile name in `agent.config.yaml`'s `opcua-adapter:` block, and `docker compose restart mtconnect-agent-spb`.
+7. Copy the two files into your agent deployment's `profiles/` folder, reference the profile name in `agent.config.yaml`'s `opcua-adapter:` block, and restart the agent container.
 
 ## Current capabilities (latest)
 
@@ -69,29 +80,34 @@ Built `.exe` is produced via PyInstaller. `--onedir` is preferred over `--onefil
 .venv\Scripts\pyinstaller --noconfirm --onedir --windowed --name OPCUAProfilexmlGUI main.py
 ```
 
-Output lands in `dist/OPCUAProfilexmlGUI/`. Either zip the folder for distribution, or copy the whole folder to a deployment location (e.g. `C:\Tools\OPCUAProfilexmlGUI\` by convention — kept outside the repo so the ~100MB Qt bundle isn't committed; see `.gitignore`).
+Output lands in `dist/OPCUAProfilexmlGUI/`. Either zip that folder for distribution, or copy it to a permanent install location on the user's machine (anywhere they have write access — the app looks for `pki/` and `generated/` **alongside the .exe**, not inside the repo). Common conventions: `%USERPROFILE%\Tools\OPCUAProfilexmlGUI\`, `%LOCALAPPDATA%\OPCUAProfilexmlGUI\`, or `C:\Tools\OPCUAProfilexmlGUI\`. All work equally well — the app is location-independent.
 
 Folder size is large (Qt is large) but startup is instant after first extract.
 
-## Files
+## Files at rest (source and runtime)
+
+**In this repo (canonical source):**
 
 - `main.py` — entry point, connect dialog, certificates dialog, main window, tree view, generate flow
-- `generators.py` — YAML + device.xml emitters (mirrors the CLI tool's output format)
+- `generators.py` — YAML + device.xml emitters
 - `mtconnect_vocab.py` — runtime vocabulary API: `types_for_category`, `lookup_type`, `suggest_type`, `suggest_units`. Layers spec data + curated unit alternatives + curated keyword hints.
-- `mtconnect_types_spec.py` — **auto-generated** data module with all 247 MTConnect v2.7 spec types (95 SAMPLE + 146 EVENT + 6 CONDITION), with each type's category, default units, description, and SubType enums. Do not edit by hand.
-- `tools/extract_mtconnect_types.py` — one-shot extractor. Parses `c:/dev/MtConnect.net/libraries/MTConnect.NET-Common/Devices/DataItems/*.g.cs` and emits `mtconnect_types_spec.py`. Re-run after upstream MTConnect spec bumps.
+- `mtconnect_types_spec.py` — **auto-generated** data module with all MTConnect v2.7 spec types (95 SAMPLE + 158 EVENT + 6 CONDITION), each with category, default units, description, and SubType enums. Do not edit by hand.
+- `tools/extract_mtconnect_types.py` — one-shot extractor. Parses `../../libraries/MTConnect.NET-Common/Devices/DataItems/*.g.cs` (relative to this folder within the repo) and emits `mtconnect_types_spec.py`. Re-run after upstream MTConnect spec bumps.
 - `requirements.txt` — pinned deps
-- `pki/` — client cert + private key for secured OPC UA connects. Lives at the project root (not inside `.venv/`) so re-creating the venv doesn't wipe the cert. View / regenerate / import via the **Certificates...** button in the main window.
-- `.venv/` — virtual environment (excluded from version control)
-- `generated/` — default output folder for generated profile + device.xml
+
+**Alongside the running program at runtime (created on first use, gitignored):**
+
+- `pki/` — client cert + private key for secured OPC UA connects. Sits next to `main.py` in dev, next to the `.exe` when frozen. Survives venv recreation and re-installs.
+- `generated/` — default output folder for the profile YAML + device.xml the tool emits.
+- `.venv/` — dev-only Python virtual environment (excluded from version control)
 
 ## Refreshing the MTConnect type vocabulary
 
 When the spec version in the MTConnect.NET fork bumps (new types added in v2.8 etc.):
 
 ```powershell
-cd C:\Tools\OPCUAProfilexmlGUI
+# From this folder (wherever you cloned the repo)
 .venv\Scripts\python.exe tools\extract_mtconnect_types.py
 ```
 
-This overwrites `mtconnect_types_spec.py`. The extractor parses 247 generated `*DataItem.g.cs` files in the fork to pull the canonical type name, category, default units, description, and SubType enum members per type. The autocomplete keyword hints in `mtconnect_vocab.py` are hand-curated and persist across re-runs — extend them when you start seeing unfamiliar BrowseNames that should map cleanly to a spec type.
+This overwrites `mtconnect_types_spec.py`. The extractor walks the fork's generated `*DataItem.g.cs` files to pull the canonical type name, category, default units, description, and SubType enum members per type. The autocomplete keyword hints in `mtconnect_vocab.py` are hand-curated and persist across re-runs — extend them when you start seeing unfamiliar BrowseNames that should map cleanly to a spec type.
