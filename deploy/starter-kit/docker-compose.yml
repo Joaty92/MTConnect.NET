@@ -1,0 +1,28 @@
+# Starter-kit deployment compose file.
+# Zip the parent starter-kit/ folder and ship alongside the .tar to a new site.
+# On the target: unzip, `docker load -i ../mtconnect-agent-spb-<ver>.tar`,
+# edit config/agent.config.yaml, `docker compose up -d`.
+
+services:
+
+  mtconnect-agent-spb:
+
+    # Bump this tag to match whatever .tar you shipped alongside.
+    # `docker load` prints "Loaded image: <tag>" so you know what to reference.
+    image: mtconnect-agent-spb:1.0.0
+
+    container_name: mtconnect-agent-spb
+
+    restart: unless-stopped
+
+    ports:
+      # Host port : container port. Change the LEFT number if 5003 conflicts
+      # with something already listening on this target.
+      - "5003:5000"
+
+    volumes:
+      - ./config/agent.config.yaml:/app/agent.config.yaml
+      - ./config/NLog.config:/app/NLog.config
+      - ./devices:/app/devices
+      - ./profiles:/app/profiles
+      - ./logs:/app/logs

@@ -1,0 +1,3 @@
+# This file exists only so git preserves the empty devices/ folder.
+# When you deploy this starter-kit to a site, drop your <deviceKey>.xml files here — one per SHDR-fed
+# or hand-authored MTConnect device. See ../README.md for the full workflow.

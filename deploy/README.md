@@ -52,6 +52,19 @@ After this, `c:\dev\MtConnect.net\deploy\mtconnect-agent-spb-1.0.0.tar` is the *
 
 ## Phase 2 — Prepare the site folder (still on your dev machine)
 
+**Easiest path — use the starter-kit.** This folder contains `starter-kit/` — a ready-to-ship bundle with the compose file, a commented `agent.config.yaml`, empty `devices/` and `profiles/` folders, `logs/`, and a target-side README. To prep a new site, just copy it:
+
+```powershell
+# Copy the starter-kit as-is, rename for the site
+cp -r c:\dev\MtConnect.net\deploy\starter-kit c:\Ship\SiteA
+```
+
+Then edit `c:\Ship\SiteA\config\agent.config.yaml` — uncomment the module blocks you need (mqtt-relay, sparkplug-relay, opcua-adapter, shdr-adapter, haas-ethernet) and fill in the site's IPs, broker hostnames, deviceKeys. Drop any per-machine device XMLs into `devices/` and OPC UA profile bundles into `profiles/`.
+
+That's it. Zip `c:\Ship\SiteA\`, ship alongside the `.tar`, done.
+
+**Alternative (legacy) path — build the site folder from scratch:**
+
 Every factory site needs a **config folder**. This holds the per-site YAML/XML — which machines are on this network, what IPs, what profile per machine. It's small (a few KB).
 
 You have one already at `c:\dev\deployment\`. To prepare a **new** site (say, "Site B"):

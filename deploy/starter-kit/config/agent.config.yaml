@@ -1,0 +1,111 @@
+# - Device Configuration -
+devices: devices
+
+# - Modules -
+modules:
+
+# ============================================================================
+#  HTTP server — exposes the MTConnect REST endpoint (/probe, /current, /sample)
+#  Enabled by default so /probe works on first boot; comment out to disable.
+# ============================================================================
+
+- http-server:
+    port: 5000
+    indentOutput: true
+    documentFormat: xml
+    accept:
+      text/xml: xml
+      application/json: json
+    responseCompression:
+    - gzip
+    - br
+    files:
+    - path: schemas
+      location: schemas
+    - path: styles
+      location: styles
+    - path: styles/favicon.ico
+      location: favicon.ico
+
+# ============================================================================
+#  MQTT relay — forwards observations to an external MQTT broker
+#  Uncomment + edit broker details for this site.
+# ============================================================================
+
+# - mqtt-relay: # Entity structure — one message per observation
+#     server: host.docker.internal
+#     port: 1883
+#     durableRelay: true
+#     currentInterval: 5000
+#     sampleInterval: 500
+#     documentFormat: JSON
+#     topicPrefix: MTConnect/Entity
+#     topicStructure: Entity
+
+# ============================================================================
+#  Sparkplug B relay — forwards observations as SPB DBIRTH/DDATA/DDEATH
+#  Uncomment + edit broker + Sparkplug Group / Node identity for this site.
+# ============================================================================
+
+# - sparkplug-relay:
+#     server: host.docker.internal
+#     port: 1883
+#     groupId: Factory              # top-level Sparkplug Group namespace
+#     nodeId: Agent1                # Edge Node ID (this agent's identity)
+
+# ============================================================================
+#  OPC UA adapter — one block per machine
+#  See profiles/ folder for NodeId mapping files (.yaml + optional .template.xml).
+# ============================================================================
+
+# - opcua-adapter: # example: Sinumerik 840D, anonymous, no TLS
+#     deviceKey: Sinu-001
+#     endpoint: opc.tcp://192.168.1.50:4840
+#     securityPolicy: None
+#     identity:
+#       mode: anonymous
+#     samplingInterval: 250
+#     publishingInterval: 1000
+#     profile: sinumerik_840d       # references profiles/sinumerik_840d.yaml
+
+# ============================================================================
+#  SHDR adapter — TCP socket connection to a TrakHound SHDR adapter on the HMI
+#  One block per machine. deviceKey must match devices/<key>.xml
+# ============================================================================
+
+# - shdr-adapter: # example: Machine EDM at 192.168.1.100
+#     deviceKey: Machine-100
+#     hostname: 192.168.1.100
+#     port: 7878
+#     heartbeat: 5000
+#     reconnectInterval: 600
+#     connectionTimeout: 1000
+
+# ============================================================================
+#  Haas Ethernet adapter — polls a Haas CNC over TCP (usually via Moxa NPort)
+#  Built-in: serial number, software/model, mode, uptime/cutting time, cycle
+#  times, M30 counters, program state, X/Y/Z work + machine positions,
+#  single-block, last M-code. Add extra Q-codes / macros via YAML.
+# ============================================================================
+
+# - haas-ethernet: # example: Haas VF-2 behind a Moxa NPort at .254
+#     deviceKey: HAAS-VF2           # must match devices/HAAS-VF2.xml
+#     server: 192.168.127.254        # Moxa NPort IP (or direct-Ethernet Haas)
+#     port: 4001                    # Moxa NPort port 1 = 4001, port 2 = 4002, ...
+#     pollInterval: 1.0
+#     # commands:                   # extra Q-codes beyond the 11 built-in
+#     #   - { name: air_pressure, command: "?Q999" }
+#     # macroVariables:              # extra macros beyond the 8 built-in
+#     #   - { name: feedrate, variable: 3003 }
+
+# ============================================================================
+#  Agent buffer + global settings
+# ============================================================================
+
+observationBufferSize: 150000
+assetBufferSize: 1000
+
+# durable: true
+# durableBufferPath: /app/buffer
+
+# defaultVersion: 2.7

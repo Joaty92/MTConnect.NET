@@ -1,0 +1,2 @@
+# This file exists only so git preserves the empty logs/ folder.
+# The agent writes log files here at runtime. Nothing to seed.
