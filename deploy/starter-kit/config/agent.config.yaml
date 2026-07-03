@@ -52,6 +52,12 @@ modules:
 #     port: 1883
 #     groupId: Factory              # top-level Sparkplug Group namespace
 #     nodeId: Agent1                # Edge Node ID (this agent's identity)
+#     # --- TLS (see agent/Modules/MTConnect.NET-AgentModule-SparkplugBRelay/ReadMe.md) ---
+#     # useTls: true                          # pair with the broker's TLS port (8883)
+#     # caCertificateFile: certs/broker-ca.crt   # pin the broker CA (PEM or DER)
+#     # clientCertificateFile: certs/agent1.pfx  # mutual-TLS client certificate (PKCS#12)
+#     # clientCertificatePassword: changeit
+#     # (drop cert files in config/certs/ and uncomment the certs volume in docker-compose.yml)
 
 # ============================================================================
 #  OPC UA adapter — one block per machine
@@ -73,8 +79,8 @@ modules:
 #  One block per machine. deviceKey must match devices/<key>.xml
 # ============================================================================
 
-# - shdr-adapter: # example: Machine EDM at 192.168.1.100
-#     deviceKey: Machine-100
+# - shdr-adapter: # example: machine with an SHDR adapter at 192.168.1.100
+#     deviceKey: Machine-01
 #     hostname: 192.168.1.100
 #     port: 7878
 #     heartbeat: 5000

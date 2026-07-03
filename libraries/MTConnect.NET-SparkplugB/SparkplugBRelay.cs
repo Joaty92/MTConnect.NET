@@ -1,5 +1,6 @@
 // Copyright (c) 2025, All Rights Reserved.
 
+using MQTTnet.Client;
 using MTConnect.Agents;
 using MTConnect.Configurations;
 using MTConnect.Devices;
@@ -12,7 +13,11 @@ using VersionBData = SparkplugNet.VersionB.Data;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -144,7 +149,7 @@ namespace MTConnect.SparkplugB
                 scadaHostIdentifier: null,
                 reconnectInterval: TimeSpan.FromMilliseconds(_config.ReconnectInterval),
                 mqttProtocolVersion: null,
-                mqttTlsOptions: null,
+                mqttTlsOptions: BuildTlsOptions(),
                 mqttWebSocketOptions: null,
                 groupIdentifier: _config.GroupId,
                 edgeNodeIdentifier: _config.NodeId,
@@ -377,6 +382,84 @@ namespace MTConnect.SparkplugB
             {
                 Log(MTConnectLogLevel.Warning, $"DDATA failed for {deviceName} ({metrics.Count} metrics): {ex.Message}");
             }
+        }
+
+        // Builds the MQTTnet TLS options from configuration, or null for plaintext.
+        // Three trust modes: OS trust store (default), pinned CA file (custom root
+        // trust), or allow-untrusted (test rigs). A PKCS#12 client certificate
+        // enables mutual TLS.
+        private MqttClientTlsOptions BuildTlsOptions()
+        {
+            if (!_config.UseTls) return null;
+
+            var tls = new MqttClientTlsOptions { UseTls = true };
+
+            if (!string.IsNullOrWhiteSpace(_config.ClientCertificateFile))
+            {
+                var clientCertificate = new X509Certificate2(
+                    ResolvePath(_config.ClientCertificateFile),
+                    _config.ClientCertificatePassword);
+                tls.ClientCertificatesProvider = new DefaultMqttCertificatesProvider(
+                    new X509Certificate2Collection(clientCertificate));
+                Log(MTConnectLogLevel.Information, $"SparkplugB TLS: client certificate loaded ({clientCertificate.Subject})");
+            }
+
+            if (_config.AllowUntrustedCertificates)
+            {
+                tls.AllowUntrustedCertificates = true;
+                tls.IgnoreCertificateChainErrors = true;
+                tls.IgnoreCertificateRevocationErrors = true;
+                tls.CertificateValidationHandler = _ => true;
+                Log(MTConnectLogLevel.Warning, "SparkplugB TLS: allowUntrustedCertificates enabled — the broker certificate is NOT validated (test use only)");
+            }
+            else if (!string.IsNullOrWhiteSpace(_config.CaCertificateFile))
+            {
+                var caCertificate = LoadCaCertificate(ResolvePath(_config.CaCertificateFile));
+                tls.CertificateValidationHandler = args => ValidateAgainstCa(args, caCertificate);
+                Log(MTConnectLogLevel.Information, $"SparkplugB TLS: broker certificate pinned to CA '{caCertificate.Subject}'");
+            }
+
+            return tls;
+        }
+
+        private static string ResolvePath(string path) =>
+            Path.IsPathRooted(path) ? path : Path.Combine(AppContext.BaseDirectory, path);
+
+        // Accepts PEM ("-----BEGIN CERTIFICATE-----") or binary DER.
+        private static X509Certificate2 LoadCaCertificate(string fullPath)
+        {
+            var bytes = File.ReadAllBytes(fullPath);
+            if (bytes.Length > 0 && bytes[0] == (byte)'-')
+            {
+                return X509Certificate2.CreateFromPem(Encoding.ASCII.GetString(bytes));
+            }
+            return new X509Certificate2(bytes);
+        }
+
+        // Validates the broker certificate against the pinned CA using custom root
+        // trust. Hostname mismatches are still rejected — the broker cert's CN/SAN
+        // must match the configured server name.
+        private static bool ValidateAgainstCa(MqttClientCertificateValidationEventArgs args, X509Certificate2 caCertificate)
+        {
+            if (args.SslPolicyErrors == SslPolicyErrors.None) return true;
+            if ((args.SslPolicyErrors & SslPolicyErrors.RemoteCertificateNotAvailable) != 0) return false;
+            if ((args.SslPolicyErrors & SslPolicyErrors.RemoteCertificateNameMismatch) != 0) return false;
+            if (args.Certificate == null) return false;
+
+            using var chain = new X509Chain();
+            chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+            chain.ChainPolicy.CustomTrustStore.Add(caCertificate);
+            chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+            if (args.Chain != null)
+            {
+                foreach (var element in args.Chain.ChainElements)
+                {
+                    chain.ChainPolicy.ExtraStore.Add(element.Certificate);
+                }
+            }
+
+            using var serverCertificate = new X509Certificate2(args.Certificate);
+            return chain.Build(serverCertificate);
         }
 
         private void Log(MTConnectLogLevel level, string message) =>

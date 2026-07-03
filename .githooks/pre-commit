@@ -1,0 +1,25 @@
+#!/bin/sh
+# Blocks commits that (re)introduce site-identifying terms into staged changes.
+#
+# Enable once per clone:
+#   git config core.hooksPath .githooks
+#
+# The pattern is a case-insensitive extended regex checked against ADDED lines
+# only. "\bTrac\b" deliberately does not match Trace/Track/Tracking.
+# Adjust the list here when new terms need protecting.
+
+PATTERN='\bTrac\b|Sodi|deployment'
+
+matches=$(git diff --cached --unified=0 --no-color | grep -E '^\+[^+]' | grep -iE "$PATTERN")
+
+if [ -n "$matches" ]; then
+    echo "COMMIT BLOCKED: staged changes contain site-identifying terms:" >&2
+    echo "" >&2
+    echo "$matches" >&2
+    echo "" >&2
+    echo "Replace them with generic placeholders (Machine-01, Factory, Agent1, ...)." >&2
+    echo "False positive? Adjust PATTERN in .githooks/pre-commit." >&2
+    exit 1
+fi
+
+exit 0

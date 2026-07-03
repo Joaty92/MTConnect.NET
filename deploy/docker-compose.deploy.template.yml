@@ -2,10 +2,9 @@
 # Copy this file into the target site's config folder (alongside config/,
 # devices/, profiles/, logs/) and rename to `docker-compose.yml`.
 #
-# Unlike the dev docker-compose.yml at deployment/ which builds
-# from source (context: C:/dev/MTConnect.NET), this file references the
-# pre-built image loaded from a .tar via `docker load`. No source tree
-# needed on the target.
+# Unlike a development compose file that builds from the source tree, this
+# file references the pre-built image loaded from a .tar via `docker load`.
+# No source tree needed on the target.
 
 services:
 

@@ -26,3 +26,5 @@ services:
       - ./devices:/app/devices
       - ./profiles:/app/profiles
       - ./logs:/app/logs
+      # Uncomment when using TLS certs for the sparkplug-relay (referenced as certs/<file>):
+      # - ./config/certs:/app/certs

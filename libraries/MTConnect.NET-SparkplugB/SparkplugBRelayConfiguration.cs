@@ -21,5 +21,16 @@ namespace MTConnect.Configurations
         public string NodeId { get; set; } = "Agent";
         /// <summary>Delay in milliseconds between reconnect attempts after the broker connection drops.</summary>
         public int ReconnectInterval { get; set; } = 10000;
+
+        /// <summary>Enables TLS on the MQTT connection. Point <see cref="Port"/> at the broker's TLS listener (conventionally 8883).</summary>
+        public bool UseTls { get; set; }
+        /// <summary>Optional path to the broker's CA certificate (PEM or DER). When set, the server certificate is validated against this CA (custom root trust) instead of the OS trust store. Relative paths resolve against the agent binary directory.</summary>
+        public string CaCertificateFile { get; set; }
+        /// <summary>Optional path to a PKCS#12 (.pfx / .p12) bundle holding the client certificate + private key; enables mutual-TLS client-certificate authentication. Relative paths resolve against the agent binary directory.</summary>
+        public string ClientCertificateFile { get; set; }
+        /// <summary>Password for <see cref="ClientCertificateFile"/>; omit if the bundle is not password-protected.</summary>
+        public string ClientCertificatePassword { get; set; }
+        /// <summary>Accepts any server certificate without validation. Test rigs only — never production.</summary>
+        public bool AllowUntrustedCertificates { get; set; }
     }
 }
