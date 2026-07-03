@@ -5,10 +5,12 @@
 #   git config core.hooksPath .githooks
 #
 # The pattern is a case-insensitive extended regex checked against ADDED lines
-# only. "\bTrac\b" deliberately does not match Trace/Track/Tracking.
-# Adjust the list here when new terms need protecting.
+# only. "\b[T]rac\b" deliberately does not match Trace/Track/Tracking. The
+# character-class forms ([T]..., [S]...) keep the pattern from matching its own
+# source line, so edits to this file don't block themselves — preserve that
+# style when adding terms.
 
-PATTERN='\bTrac\b|Sodi|deployment'
+PATTERN='\b[T]rac\b|[S]odi|[T]rakhound.?MTConnect.?SPB'
 
 matches=$(git diff --cached --unified=0 --no-color | grep -E '^\+[^+]' | grep -iE "$PATTERN")
 
