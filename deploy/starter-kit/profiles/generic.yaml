@@ -1,0 +1,23 @@
+# Generic profile — minimal mapping used for the end-to-end smoke test
+# against Prosys OPC UA Simulation Server (opc.tcp://localhost:53530/OPCUA/SimulationServer).
+#
+# The sim server exposes a built-in "Simulation" object with four signal types:
+#   Counter, Random, Sawtooth, Sinusoid
+# These are simple Double values that change automatically — perfect for verifying
+# the subscription pipeline end-to-end without needing a real CNC.
+#
+# The dataItemKey values below must match DataItem ids in your devices/<key>.xml.
+
+mappings:
+  - nodeId: "ns=3;i=1001"        # Counter (Double, monotonically increasing)
+    dataItemKey: counter
+    kind: sample
+  - nodeId: "ns=3;i=1002"        # Random (Double, uniform random)
+    dataItemKey: random
+    kind: sample
+  - nodeId: "ns=3;i=1003"        # Sawtooth (Double, ramp)
+    dataItemKey: sawtooth
+    kind: sample
+  - nodeId: "ns=3;i=1004"        # Sinusoid (Double, sine wave)
+    dataItemKey: sinusoid
+    kind: sample

@@ -52,24 +52,23 @@ namespace MTConnect.SparkplugB
         }
 
         /// <summary>Builds the Sparkplug metric name from an observation as <c>Type[/SubType][[DataItemId]]</c>.</summary>
-        public static string BuildObservationMetricName(IObservation observation)
-        {
-            var name = observation.Type;
-            if (!string.IsNullOrEmpty(observation.SubType))
-                name += $"/{observation.SubType}";
-            if (!string.IsNullOrEmpty(observation.DataItemId))
-                name += $"[{observation.DataItemId}]";
-            return name;
-        }
+        public static string BuildObservationMetricName(IObservation observation) =>
+            BuildMetricName(observation.Type, observation.SubType, observation.DataItemId);
 
         /// <summary>Builds the Sparkplug metric name from a data item as <c>Type[/SubType][[Id]]</c>; used to declare the metric set in DBIRTH.</summary>
-        public static string BuildDataItemMetricName(IDataItem dataItem)
+        public static string BuildDataItemMetricName(IDataItem dataItem) =>
+            BuildMetricName(dataItem.Type, dataItem.SubType, dataItem.Id);
+
+        // Single source of truth: DDATA metrics correlate with DBIRTH declarations
+        // by exact name, so the observation-side and dataitem-side names must be
+        // byte-identical. Keep every formatting decision in this one method.
+        private static string BuildMetricName(string type, string subType, string id)
         {
-            var name = dataItem.Type;
-            if (!string.IsNullOrEmpty(dataItem.SubType))
-                name += $"/{dataItem.SubType}";
-            if (!string.IsNullOrEmpty(dataItem.Id))
-                name += $"[{dataItem.Id}]";
+            var name = type;
+            if (!string.IsNullOrEmpty(subType))
+                name += $"/{subType}";
+            if (!string.IsNullOrEmpty(id))
+                name += $"[{id}]";
             return name;
         }
 

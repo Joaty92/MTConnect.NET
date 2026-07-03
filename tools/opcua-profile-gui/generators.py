@@ -88,14 +88,16 @@ def build_profile_yaml(
             lines.append(f"  - nodeId: '{escaped}'")
             lines.append(f"    dataItemKey: {s.data_item_key}")
             lines.append(f"    kind: {s.kind}")
-            # Optional spec-aware fields. Emit only when set so the YAML stays
-            # readable for the simple/auto-generate case.
+            # Spec-aware fields are informational only: the OpcUaAdapter module reads
+            # just nodeId/dataItemKey/kind, and the authoritative type/units/subType
+            # live in the generated device.xml. Emit as comments so nobody edits a
+            # YAML key that the agent silently ignores.
             if s.mtconnect_type:
-                lines.append(f"    mtconnectType: {s.mtconnect_type}")
+                lines.append(f"    # type: {s.mtconnect_type} (see device.xml — authoritative)")
             if s.mtconnect_units:
-                lines.append(f"    mtconnectUnits: {s.mtconnect_units}")
+                lines.append(f"    # units: {s.mtconnect_units} (see device.xml — authoritative)")
             if s.mtconnect_subtype:
-                lines.append(f"    mtconnectSubType: {s.mtconnect_subtype}")
+                lines.append(f"    # subType: {s.mtconnect_subtype} (see device.xml — authoritative)")
         lines.append("")
     return "\n".join(lines)
 

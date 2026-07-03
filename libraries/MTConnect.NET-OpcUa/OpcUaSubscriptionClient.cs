@@ -7,6 +7,7 @@ using Opc.Ua.Configuration;
 using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
@@ -207,6 +208,13 @@ namespace MTConnect.OpcUa
                     _session.KeepAlive += OnKeepAlive;
                 }
                 Connected?.Invoke();
+
+                // The disconnect path flagged every mapped item UNAVAILABLE. If the
+                // reconnect transferred the existing subscription, MonitoredItems only
+                // notify on change — values that didn't change during the outage would
+                // otherwise stay UNAVAILABLE until they next move. Re-read everything
+                // once so current state is republished immediately.
+                _ = RepublishCurrentValuesAsync();
             }
             catch (Exception ex)
             {
@@ -216,6 +224,37 @@ namespace MTConnect.OpcUa
             {
                 _reconnectHandler?.Dispose();
                 _reconnectHandler = null;
+            }
+        }
+
+        private async Task RepublishCurrentValuesAsync()
+        {
+            try
+            {
+                var session = _session;
+                if (session == null || !_isRunning) return;
+
+                var mappings = _profile.Mappings.Where(m => !string.IsNullOrWhiteSpace(m.NodeId)).ToList();
+                if (mappings.Count == 0) return;
+
+                var nodesToRead = new ReadValueIdCollection(
+                    mappings.Select(m => new ReadValueId { NodeId = new NodeId(m.NodeId), AttributeId = Attributes.Value }));
+
+                var response = await session.ReadAsync(null, 0, TimestampsToReturn.Source, nodesToRead, default);
+                var results = response.Results;
+                if (results == null || results.Count != mappings.Count) return;
+
+                for (int i = 0; i < mappings.Count; i++)
+                {
+                    var dv = results[i];
+                    var isGood = StatusCode.IsGood(dv.StatusCode);
+                    var ts = dv.SourceTimestamp == DateTime.MinValue ? DateTime.UtcNow : dv.SourceTimestamp.ToUniversalTime();
+                    ValueReceived?.Invoke(mappings[i].DataItemKey, CoerceValue(dv.Value, mappings[i].Kind, isGood), ts, isGood);
+                }
+            }
+            catch (Exception ex)
+            {
+                ConnectionError?.Invoke(ex);
             }
         }
 

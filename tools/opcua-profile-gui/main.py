@@ -65,6 +65,7 @@ from generators import (
     build_device_xml,
     build_profile_yaml,
     infer_kind,
+    kind_to_category,
     slugify,
     suggest_data_item_key,
 )
@@ -202,42 +203,24 @@ async def _walk(
     except Exception:
         return
 
+    new_children = []
     for child in children:
         child_id = child.nodeid.to_string()
         if child_id in visited:
             continue
         visited.add(child_id)
+        new_children.append((child_id, child))
 
-        try:
-            child_bn = (await child.read_browse_name()).Name
-            child_nc = await child.read_node_class()
-        except Exception:
+    # Fetch every child's attributes concurrently — one level at a time — instead
+    # of ~5 sequential round-trips per node (which made large PLCs take minutes).
+    described = await asyncio.gather(
+        *(_describe_node(client, child) for _, child in new_children)
+    )
+
+    for (child_id, child), desc in zip(new_children, described):
+        if desc is None:
             continue
-
-        data_type_name = ""
-        current_value = ""
-        current_status = ""
-        description = ""
-
-        if child_nc == ua.NodeClass.Variable:
-            try:
-                dt_nodeid = await child.read_data_type()
-                data_type_name = await _read_friendly_datatype(client, dt_nodeid)
-            except Exception:
-                pass
-            try:
-                dv = await child.read_data_value()
-                current_value = _format_value(dv.Value.Value if dv.Value is not None else None)
-                current_status = _stringify_status(dv.StatusCode)
-            except Exception as exc:
-                current_status = f"Bad: read failed ({type(exc).__name__})"
-
-        try:
-            d = await child.read_description()
-            if d and d.Text:
-                description = d.Text
-        except Exception:
-            pass
+        child_bn, child_nc, data_type_name, current_value, current_status, description = desc
 
         bn = BrowsedNode(
             node_id=child_id,
@@ -257,6 +240,42 @@ async def _walk(
 
         if child_nc in (ua.NodeClass.Object, ua.NodeClass.Variable, ua.NodeClass.ObjectType, ua.NodeClass.VariableType):
             await _walk(client, child, bn, depth + 1, max_depth, visited, progress, count_ref)
+
+
+async def _describe_node(client: Client, child) -> tuple | None:
+    """Read one node's identity/value attributes; returns None if unreadable."""
+    try:
+        child_bn = (await child.read_browse_name()).Name
+        child_nc = await child.read_node_class()
+    except Exception:
+        return None
+
+    data_type_name = ""
+    current_value = ""
+    current_status = ""
+    description = ""
+
+    if child_nc == ua.NodeClass.Variable:
+        try:
+            dt_nodeid = await child.read_data_type()
+            data_type_name = await _read_friendly_datatype(client, dt_nodeid)
+        except Exception:
+            pass
+        try:
+            dv = await child.read_data_value()
+            current_value = _format_value(dv.Value.Value if dv.Value is not None else None)
+            current_status = _stringify_status(dv.StatusCode)
+        except Exception as exc:
+            current_status = f"Bad: read failed ({type(exc).__name__})"
+
+    try:
+        d = await child.read_description()
+        if d and d.Text:
+            description = d.Text
+    except Exception:
+        pass
+
+    return child_bn, child_nc, data_type_name, current_value, current_status, description
 
 
 # ----------------------------------------------------------------------------
@@ -1303,7 +1322,7 @@ class MainWindow(QMainWindow):
     def _auto_fill_mtconnect_fields(self, sel: SelectedVariable) -> None:
         """Run the MTConnect type/units autocomplete heuristics on a freshly-added selection.
         Honours the active archetype's whitelist when present (bias toward common-for-class types)."""
-        category = self._kind_to_category(sel.kind)
+        category = kind_to_category(sel.kind)
         suggested = self._suggest_type_with_archetype_bias(sel.browse_name, category)
         sel.mtconnect_type = suggested.name
         sel.mtconnect_units = suggest_units(suggested, sel.browse_name) if category == "SAMPLE" else ""
@@ -1394,14 +1413,6 @@ class MainWindow(QMainWindow):
         finally:
             self._editor_loading = False
 
-    def _kind_to_category(self, kind: str) -> str:
-        k = kind.lower()
-        if k == "sample":
-            return "SAMPLE"
-        if k == "condition":
-            return "CONDITION"
-        return "EVENT"
-
     def _types_visible_for(self, category: str) -> list:
         """All spec types for the given category, optionally narrowed by the
         active archetype unless 'Show all spec types' is on."""
@@ -1411,7 +1422,7 @@ class MainWindow(QMainWindow):
         return [t for t in all_types if t.name in self.archetype.type_whitelist]
 
     def _refresh_type_combo_for_kind(self, kind: str, current_type: str = "") -> None:
-        category = self._kind_to_category(kind)
+        category = kind_to_category(kind)
         visible = self._types_visible_for(category)
 
         # If the user's saved type isn't in the visible list, surface it anyway so we
@@ -1521,7 +1532,7 @@ class MainWindow(QMainWindow):
         if row is not None:
             self.selected_table.item(row, SEL_COL_KIND).setText(text)
         # Refresh type combo because the category-relevant types changed
-        category = self._kind_to_category(text)
+        category = kind_to_category(text)
         suggested = self._suggest_type_with_archetype_bias(sel.browse_name, category)
         sel.mtconnect_type = suggested.name
         sel.mtconnect_units = suggest_units(suggested, sel.browse_name) if category == "SAMPLE" else ""
@@ -1539,7 +1550,7 @@ class MainWindow(QMainWindow):
             return
         sel.mtconnect_type = text
         # When the type changes, suggest units that match the new type
-        category = self._kind_to_category(sel.kind)
+        category = kind_to_category(sel.kind)
         fallback_type = lookup_type(text) or self._suggest_type_with_archetype_bias(sel.browse_name, category)
         suggested_units = suggest_units(fallback_type, sel.browse_name)
         sel.mtconnect_units = suggested_units if category == "SAMPLE" else ""

@@ -8,14 +8,14 @@
 // unknown / user-added Q-codes publish their raw response string as a
 // pass-through — parse downstream if needed.
 
-using MTConnect.Input;
+using MTConnect.Logging;
 using System;
 using System.Collections.Generic;
 using System.Threading;
 
 namespace MTConnect.Haas
 {
-    /// <summary>Abstract polling loop for a Haas machine. Concrete transports (<see cref="HaasEthernetDataSource"/> for TCP via Moxa, <see cref="HaasSerialDataSource"/> for direct RS-232) override <see cref="SendCommand"/>. Emits <see cref="ObservationAdded"/> for every value produced by the built-in defaults and the user-added commands / macros.</summary>
+    /// <summary>Abstract polling loop for a Haas machine. Concrete transports (<see cref="HaasEthernetDataSource"/> for TCP via Moxa) override <see cref="SendCommand"/>. Emits <see cref="ObservationAdded"/> for every value produced by the built-in defaults and the user-added commands / macros. On transport failure the loop emits <c>avail=UNAVAILABLE</c>, skips the rest of the cycle, and re-polls the once-per-session values after recovery.</summary>
     public abstract class HaasDataSource
     {
         private readonly List<HaasCommand> _allCommands;
@@ -25,6 +25,7 @@ namespace MTConnect.Haas
 
         private Thread _pollThread;
         private volatile bool _running;
+        private bool _transportDown; // poll-thread only
 
         /// <summary>Seconds between polling cycles (all commands + macros scanned once per cycle, respecting per-entry throttles).</summary>
         public double PollInterval { get; set; } = 1.0;
@@ -32,8 +33,8 @@ namespace MTConnect.Haas
         /// <summary>Raised for every observation produced by the polling loop. Consumers (the agent module) wire this to <see cref="MTConnect.Agents.IMTConnectAgentBroker.AddObservation"/>.</summary>
         public event EventHandler<(string Key, string Value)> ObservationAdded;
 
-        /// <summary>Raised when the polling loop wants to emit a log line (start/stop, transport errors, unknown responses).</summary>
-        public event EventHandler<(int LogLevel, string Message)> LogReceived;
+        /// <summary>Raised when the polling loop or the transport wants to emit a log line (start/stop, transport errors, unknown responses).</summary>
+        public event MTConnectLogEventHandler LogReceived;
 
         /// <summary>Builds the polling engine. User-added Commands/MacroVariables from configuration are appended to <see cref="HaasDefaults.Commands"/> / <see cref="HaasDefaults.MacroVariables"/> — both sets are polled.</summary>
         protected HaasDataSource(IEnumerable<HaasCommand> extraCommands, IEnumerable<HaasMacroVariable> extraMacros, double pollInterval)
@@ -56,7 +57,7 @@ namespace MTConnect.Haas
             _pollThread.Start();
         }
 
-        /// <summary>Stops the polling loop and closes the transport. Blocks briefly on the poll thread.</summary>
+        /// <summary>Stops the polling loop and closes the transport. Closing the transport first also unblocks a poll thread waiting inside a read; then blocks briefly on the poll thread.</summary>
         public void Stop()
         {
             _running = false;
@@ -64,7 +65,7 @@ namespace MTConnect.Haas
             _pollThread?.Join(TimeSpan.FromSeconds(3));
         }
 
-        /// <summary>Override in a transport subclass to send a Q-code command and return the raw ASCII response. Returning null signals a transport failure — the polling loop marks avail=UNAVAILABLE and skips this cycle's remaining commands.</summary>
+        /// <summary>Override in a transport subclass to send a Q-code command and return the raw ASCII response. Returning null signals a transport failure — the polling loop emits <c>avail=UNAVAILABLE</c> once per outage and skips this cycle's remaining commands.</summary>
         protected abstract string SendCommand(string command);
 
         /// <summary>Called on <see cref="Start"/> before the poll thread starts. Override to open transports, etc.</summary>
@@ -84,7 +85,7 @@ namespace MTConnect.Haas
                 }
                 catch (Exception ex)
                 {
-                    Log(2, "Poll loop exception: " + ex.Message);
+                    Log(MTConnectLogLevel.Error, "Poll loop exception: " + ex.Message);
                 }
 
                 Thread.Sleep(TimeSpan.FromSeconds(PollInterval));
@@ -100,14 +101,20 @@ namespace MTConnect.Haas
                 if (cmd.PollOnce && _polledOnceKeys.Contains(cmd.Name)) continue;
 
                 var response = SendCommand(cmd.Command);
-                if (response == null) continue;
+                if (!NoteTransportResult(response != null)) return;
 
+                var parsedPrimary = false;
                 foreach (var (key, value) in HaasResponseParsers.Parse(cmd, response))
                 {
+                    if (key == cmd.Name) parsedPrimary = true;
                     Emit(key, value);
                 }
 
-                if (cmd.PollOnce) _polledOnceKeys.Add(cmd.Name);
+                // Latch PollOnce only when the primary value actually parsed, so a
+                // garbled first reply (e.g. Q100 serial number) is retried next cycle
+                // instead of being lost — and avail stuck UNAVAILABLE — for the whole
+                // session.
+                if (cmd.PollOnce && parsedPrimary) _polledOnceKeys.Add(cmd.Name);
                 _lastPollUtc[cmd.Name] = DateTime.UtcNow;
             }
         }
@@ -120,7 +127,7 @@ namespace MTConnect.Haas
                 if (SkipDueToRateLimit(mv.Name, mv.PollEvery)) continue;
 
                 var response = SendCommand("?Q600 " + mv.Variable);
-                if (response == null) continue;
+                if (!NoteTransportResult(response != null)) return;
 
                 var value = HaasResponseParsers.ParseMacroValue(response);
                 if (value != null)
@@ -130,6 +137,33 @@ namespace MTConnect.Haas
 
                 _lastPollUtc[mv.Name] = DateTime.UtcNow;
             }
+        }
+
+        // Tracks transport up/down transitions. On the first failure of an outage:
+        // emit avail=UNAVAILABLE (Q100 only reports availability while the link is
+        // up, so nothing else would) and abort the cycle. On the first success after
+        // an outage: clear the PollOnce/throttle state so Q100 re-polls and flips
+        // avail back to AVAILABLE along with the identity values.
+        private bool NoteTransportResult(bool ok)
+        {
+            if (!ok)
+            {
+                if (!_transportDown)
+                {
+                    _transportDown = true;
+                    Emit("avail", "UNAVAILABLE");
+                    Log(MTConnectLogLevel.Warning, "Transport failure — marking avail UNAVAILABLE and skipping the rest of this cycle");
+                }
+                return false;
+            }
+
+            if (_transportDown)
+            {
+                _transportDown = false;
+                ResetSessionState();
+                Log(MTConnectLogLevel.Information, "Transport recovered — re-polling session values (serial number, model, availability)");
+            }
+            return true;
         }
 
         private bool SkipDueToRateLimit(string key, int? pollEverySeconds)
@@ -144,17 +178,19 @@ namespace MTConnect.Haas
             ObservationAdded?.Invoke(this, (key, value));
         }
 
-        /// <summary>Clears the <see cref="HaasCommand.PollOnce"/> tracking so the once-per-session values (serial number, software version, model) re-emit after a reconnect. Transport subclasses should call this on connection re-establishment.</summary>
-        protected void ResetSessionState()
+        // Clears the PollOnce tracking so the once-per-session values (serial
+        // number, software version, model) re-emit after a transport recovery.
+        // Driven by NoteTransportResult on the first success after an outage.
+        private void ResetSessionState()
         {
             _polledOnceKeys.Clear();
             _lastPollUtc.Clear();
         }
 
         /// <summary>Emit a log line to the hosting module.</summary>
-        protected void Log(int level, string message)
+        protected void Log(MTConnectLogLevel level, string message)
         {
-            LogReceived?.Invoke(this, (level, message));
+            LogReceived?.Invoke(this, level, message);
         }
     }
 }

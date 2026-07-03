@@ -1,0 +1,105 @@
+# Sinumerik 840D profile skeleton — 5-axis trunnion configuration (X, Y, Z + A, C).
+#
+# DataItem keys below match the MTConnect device model in profiles/sinumerik_840d.device.xml
+# and were chosen to align with the MTConnect OPC UA Companion Specification V2.00 vocabulary
+# (https://opcfoundation.org/developer-tools/specifications-opc-ua-information-models/opc-unified-architecture-for-mtconnect/).
+# Vendor NodeIds are Siemens-specific and MUST be discovered from a real Sinumerik server
+# with UAExpert (or `tools/opcua-browse` from this repo).
+#
+# Workflow:
+#   1. Connect UAExpert to the Sinumerik OPC UA endpoint (typically opc.tcp://<plc-ip>:4840).
+#   2. Browse the address space to locate each MTConnect data item below.
+#   3. Copy the NodeId string (right-click a node → Copy NodeId) over the TODO placeholder.
+#   4. Delete entries for data items the machine doesn't expose. For 3-axis machines,
+#      delete the A and C axis entries (and their corresponding DataItems in the .device.xml).
+#   5. Restart the agent — the module picks up the new mappings on next OnStartAfterLoad.
+
+mappings:
+  # --- Availability ---
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: avail               # AVAILABILITY — AVAILABLE when controller power is on
+    kind: event
+
+  # --- Controller / Path ---
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: program             # PROGRAM — current part program name
+    kind: event
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: execution           # EXECUTION — ACTIVE / READY / STOPPED / FEED_HOLD / INTERRUPTED
+    kind: event
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: controller_mode     # CONTROLLER_MODE — AUTOMATIC / MANUAL / MANUAL_DATA_INPUT / SEMI_AUTOMATIC
+    kind: event
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: line                # LINE_NUMBER — current line in program
+    kind: sample
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: block               # BLOCK — current G-code block text
+    kind: event
+
+  # --- Path feed ---
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: pfo                 # PATH_FEEDRATE_OVERRIDE — percent
+    kind: sample
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: pfr                 # PATH_FEEDRATE — mm/min
+    kind: sample
+
+  # --- Spindle ---
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: srpm                # ROTARY_VELOCITY ACTUAL — spindle RPM
+    kind: sample
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: sso                 # ROTARY_VELOCITY_OVERRIDE — percent
+    kind: sample
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: sload               # LOAD on spindle — percent
+    kind: sample
+
+  # --- Linear axes (machine coordinates) ---
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: xabs                # POSITION ACTUAL — X axis machine position
+    kind: sample
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: yabs                # POSITION ACTUAL — Y axis machine position
+    kind: sample
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: zabs                # POSITION ACTUAL — Z axis machine position
+    kind: sample
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: xload               # LOAD on X servo — percent
+    kind: sample
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: yload               # LOAD on Y servo — percent
+    kind: sample
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: zload               # LOAD on Z servo — percent
+    kind: sample
+
+  # --- Rotary axes (5-axis trunnion: A = tilt, C = rotary table) ---
+  # For 3-axis machines, delete these four entries AND the matching <Rotary> blocks in the .device.xml.
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: aabs                # ANGLE ACTUAL — A axis (tilt) machine angle
+    kind: sample
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: cabs                # ANGLE ACTUAL — C axis (rotary table) machine angle
+    kind: sample
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: aload               # LOAD on A servo — percent
+    kind: sample
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: cload               # LOAD on C servo — percent
+    kind: sample
+
+  # --- Tool ---
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: tool_id             # TOOL_NUMBER — active tool number
+    kind: event
+  - nodeId: "TODO: browse with UAExpert"
+    dataItemKey: tool_offset         # TOOL_OFFSET — active tool D number
+    kind: event
+
+  # CONDITION / alarm-tree mapping is intentionally omitted from v1 — Sinumerik's alarm
+  # semantics need a dedicated translator and are tracked as follow-up work. The .device.xml
+  # template still declares the canonical CONDITION items (Xtravel, Xservo, system, etc.)
+  # so other modules or a future v2 of this module can populate them without an XML rewrite.

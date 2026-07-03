@@ -4,17 +4,26 @@
 // Structural pattern retained from the original TrakHound MTConnect.NET-Haas
 // (https://github.com/TrakHound/MTConnect.NET-Haas). Adapted into this fork
 // with doc-comment additions to satisfy the WarningsAsErrors;CS1591 gate.
+// Fork replaces the original fixed 500ms sleep + single unvalidated read with
+// a bounded, terminator-aware read so responses cannot desync across commands,
+// a dead endpoint cannot hang the poll thread, and replies return in
+// milliseconds instead of half a second.
 
 using MTConnect.Logging;
 using System;
+using System.IO;
 using System.Net.Sockets;
 using System.Text;
 
 namespace MTConnect.Haas
 {
-    /// <summary>TCP transport for Haas Q-code commands. Typically talks to a Moxa NPort serial-to-Ethernet converter fronting the Haas HMI's RS-232 port. Blocking (synchronous) TcpClient; call from a polling thread.</summary>
+    /// <summary>TCP transport for Haas Q-code commands. Typically talks to a Moxa NPort serial-to-Ethernet converter fronting the Haas HMI's RS-232 port. Blocking (synchronous) TcpClient; call from a single polling thread — not thread-safe.</summary>
     public class Ethernet
     {
+        private const int ConnectTimeoutMs = 5000;   // bound on TCP connect so a filtered host can't stall a poll cycle for ~21s
+        private const int ResponseTimeoutMs = 2000;  // max wait for the first byte of a reply
+        private const int QuietPeriodMs = 150;       // silence after the last chunk that marks an unterminated reply complete
+
         /// <summary>Hostname or IP address of the TCP endpoint (usually the Moxa's IP).</summary>
         public string Server;
 
@@ -23,6 +32,7 @@ namespace MTConnect.Haas
 
         private TcpClient client = null;
         private NetworkStream stream = null;
+        private readonly byte[] _receiveBuffer = new byte[2048];
 
 
         /// <summary>Raised when the transport wants to surface a log line to the hosting module.</summary>
@@ -36,27 +46,32 @@ namespace MTConnect.Haas
             Port = port;
         }
 
-        /// <summary>Opens the TCP connection. Any previous connection is closed first. Errors are logged via <see cref="LogReceived"/> and swallowed; check <see cref="TcpClient.Connected"/> on subsequent operations to detect failure.</summary>
+        /// <summary>Opens the TCP connection, bounded by a 5s connect timeout. Any previous connection is closed first. Errors are logged via <see cref="LogReceived"/> and swallowed; <see cref="SendCommand"/> returns null while disconnected.</summary>
         public void Connect()
         {
             Close();
 
+            TcpClient newClient = null;
             try
             {
-                client = new TcpClient(Server, Port);
-                stream = client.GetStream();
-            }
-            catch (ArgumentNullException ex)
-            {
-                Log(MTConnectLogLevel.Error, $"ArgumentNullException: {ex.Message}");
-            }
-            catch (SocketException ex)
-            {
-                Log(MTConnectLogLevel.Error, $"SocketException: {ex.Message}");
+                newClient = new TcpClient();
+                var ar = newClient.BeginConnect(Server, Port, null, null);
+                if (!ar.AsyncWaitHandle.WaitOne(ConnectTimeoutMs))
+                {
+                    throw new SocketException((int)SocketError.TimedOut);
+                }
+                newClient.EndConnect(ar);
+
+                stream = newClient.GetStream();
+                stream.ReadTimeout = ResponseTimeoutMs;
+                client = newClient;
             }
             catch (Exception ex)
             {
-                Log(MTConnectLogLevel.Error, $"Exception: {ex.Message}");
+                try { newClient?.Close(); } catch { }
+                client = null;
+                stream = null;
+                Log(MTConnectLogLevel.Error, $"Connect failed for {Server}:{Port}: {ex.Message}");
             }
         }
 
@@ -65,80 +80,124 @@ namespace MTConnect.Haas
         {
             try
             {
-                if (client != null) client.Close();
-                if (stream != null) stream.Close();
-            }
-            catch (ArgumentNullException ex)
-            {
-                Log(MTConnectLogLevel.Error, $"ArgumentNullException: {ex.Message}");
-            }
-            catch (SocketException ex)
-            {
-                Log(MTConnectLogLevel.Error, $"SocketException: {ex.Message}");
+                stream?.Close();
+                client?.Close();
             }
             catch (Exception ex)
             {
-                Log(MTConnectLogLevel.Error, $"Exception: {ex.Message}");
+                Log(MTConnectLogLevel.Warning, $"Close error: {ex.Message}");
+            }
+            finally
+            {
+                stream = null;
+                client = null;
             }
         }
 
-        /// <summary>Sends a Q-code command over the TCP connection and returns the trimmed ASCII response, or null on error. Auto-reconnects if the underlying socket has dropped. Sleeps 500ms between write and read to give the Haas controller time to reply (mirrors the RS-232 timing).</summary>
+        /// <summary>Sends a Q-code command and returns the trimmed ASCII response, or null on transport failure (not connected, no reply within 2s, or connection dropped). Auto-reconnects if the socket has dropped. Reads until an end-of-line / '&gt;' prompt terminator, falling back to a short quiet period for unterminated replies — no fixed sleeps.</summary>
         public string SendCommand(string cmd)
         {
-            string result = null;
-
             try
             {
-                // Connect to Server
-                if (client == null || stream == null || (client != null && !client.Connected))
+                if (!IsConnected()) Connect();
+                if (!IsConnected()) return null;
+
+                // Drain any stale bytes left over from a previous timed-out exchange
+                // so a late reply can never be attributed to this (or a later) command.
+                DrainPending();
+
+                var data = Encoding.ASCII.GetBytes(cmd + "\r\n");
+                stream.Write(data, 0, data.Length);
+
+                var response = new StringBuilder();
+                long deadline = Environment.TickCount64 + (ResponseTimeoutMs * 2);
+                stream.ReadTimeout = ResponseTimeoutMs;
+
+                while (Environment.TickCount64 < deadline)
                 {
-                    Connect();
-                }
-
-                if (client != null && stream != null && client.Connected)
-                {
-                    // Translate the passed message into ASCII and store it as a Byte array.
-                    byte[] data = Encoding.ASCII.GetBytes(cmd + "\r\n");
-
-                    // Send the message to the connected TcpServer.
-                    stream.Write(data, 0, data.Length);
-
-                    System.Threading.Thread.Sleep(500);
-
-                    // Buffer to store the response bytes.
-                    data = new byte[2048];
-
-                    // String to store the response ASCII representation.
-                    string responseData = string.Empty;
-
-                    // Read the first batch of the TcpServer response bytes.
-                    int bytes = stream.Read(data, 0, data.Length);
-                    responseData = Encoding.ASCII.GetString(data, 0, bytes);
-
-                    if (!string.IsNullOrEmpty(responseData))
+                    int bytes;
+                    try
                     {
-                        responseData = responseData.TrimEnd();
-                        responseData = responseData.TrimEnd('>');
-                        responseData = responseData.TrimEnd();
+                        bytes = stream.Read(_receiveBuffer, 0, _receiveBuffer.Length);
+                    }
+                    catch (IOException)
+                    {
+                        // Read timeout: with no data yet this is a transport failure;
+                        // after data, the quiet period elapsing completes the reply.
+                        break;
                     }
 
-                    result = responseData;
+                    if (bytes <= 0)
+                    {
+                        // Remote closed the connection — force a clean reconnect next call.
+                        Close();
+                        break;
+                    }
+
+                    response.Append(Encoding.ASCII.GetString(_receiveBuffer, 0, bytes));
+                    if (IsCompleteResponse(response)) break;
+
+                    stream.ReadTimeout = QuietPeriodMs;
                 }
-            }
-            catch (ArgumentNullException ex)
-            {
-                Log(MTConnectLogLevel.Error, $"ArgumentNullException: {ex.Message}");
-            }
-            catch (SocketException ex)
-            {
-                Log(MTConnectLogLevel.Error, $"SocketException: {ex.Message}");
+
+                if (response.Length == 0)
+                {
+                    // Timed out without a single byte — treat the link as dead so the
+                    // next SendCommand reconnects instead of reading a stale stream.
+                    Close();
+                    return null;
+                }
+
+                var responseData = response.ToString().TrimEnd();
+                responseData = responseData.TrimEnd('>').TrimEnd();
+                return responseData.Length > 0 ? responseData : null;
             }
             catch (Exception ex)
             {
-                Log(MTConnectLogLevel.Error, $"Exception: {ex.Message}");
+                Log(MTConnectLogLevel.Error, $"SendCommand failed for {Server}:{Port}: {ex.Message}");
+                Close();
+                return null;
             }
+        }
 
-            return result;
+        private bool IsConnected()
+        {
+            try { return client != null && stream != null && client.Connected; }
+            catch { return false; }
+        }
+
+        private void DrainPending()
+        {
+            try
+            {
+                while (stream != null && stream.DataAvailable)
+                {
+                    if (stream.Read(_receiveBuffer, 0, _receiveBuffer.Length) <= 0) break;
+                }
+            }
+            catch { }
+        }
+
+        // A reply is complete once it holds real content (not just whitespace or the
+        // leading '>' of ">SERIAL NUMBER, ...") and ends at a line break or the '>'
+        // prompt the Haas prints for the next command. Unterminated replies fall
+        // through to the quiet-period timeout in SendCommand.
+        private static bool IsCompleteResponse(StringBuilder response)
+        {
+            var hasContent = false;
+            for (int i = 0; i < response.Length; i++)
+            {
+                var c = response[i];
+                if (!char.IsWhiteSpace(c) && c != '>')
+                {
+                    hasContent = true;
+                    break;
+                }
+            }
+            if (!hasContent) return false;
+
+            var last = response[response.Length - 1];
+            return last == '\n' || last == '>';
         }
 
         private void Log(MTConnectLogLevel logLevel, string message)

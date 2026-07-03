@@ -13,6 +13,10 @@ namespace MTConnect.Haas
             : base(configuration.Commands, configuration.MacroVariables, configuration.PollInterval)
         {
             _ethernet = new Ethernet(configuration.Server, configuration.Port);
+            // Surface transport errors (connect failures, timeouts, socket resets)
+            // through the module logger — previously they fired a subscriber-less
+            // event and a wrong IP produced zero diagnostics.
+            _ethernet.LogReceived += (sender, level, message, logId) => Log(level, message);
         }
 
         /// <inheritdoc/>

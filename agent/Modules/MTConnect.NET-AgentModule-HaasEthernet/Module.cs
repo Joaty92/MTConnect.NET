@@ -63,16 +63,9 @@ namespace MTConnect
             Agent.AddObservation(_configuration.DeviceKey, evt.Key, (object)evt.Value, DateTime.UtcNow);
         }
 
-        private void OnDataSourceLog(object sender, (int LogLevel, string Message) evt)
+        private void OnDataSourceLog(object sender, MTConnectLogLevel level, string message, string logId)
         {
-            // Map int level to MTConnectLogLevel; loose mapping — anything >=2 is Warning.
-            var mapped = evt.LogLevel switch
-            {
-                <= 0 => MTConnectLogLevel.Debug,
-                1 => MTConnectLogLevel.Information,
-                _ => MTConnectLogLevel.Warning,
-            };
-            Log(mapped, $"Haas ({_configuration.DeviceKey}): {evt.Message}");
+            Log(level, $"Haas ({_configuration.DeviceKey}): {message}");
         }
     }
 }

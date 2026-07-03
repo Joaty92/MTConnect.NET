@@ -14,27 +14,54 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace MTConnect.SparkplugB
 {
-    /// <summary>Bridges an <see cref="IMTConnectAgentBroker"/> to a Sparkplug B edge node — publishes NBIRTH/DBIRTH on connect, DDATA on observation changes, and DDEATH/re-DBIRTH driven by AVAILABILITY transitions per the Sparkplug B specification.</summary>
+    /// <summary>Bridges an <see cref="IMTConnectAgentBroker"/> to a Sparkplug B edge node — publishes NBIRTH/DBIRTH on connect, batched DDATA on observation changes, and DDEATH/re-DBIRTH driven by AVAILABILITY transitions per the Sparkplug B specification. All lifecycle work runs on one processing loop fed by a bounded channel, so the agent's observation path only pays a non-blocking enqueue and device state needs no lock-free choreography.</summary>
     public class SparkplugBRelay
     {
-        // Per SPB spec: DBIRTH published → Initial; AVAILABILITY=AVAILABLE → Connected;
-        // AVAILABILITY=UNAVAILABLE → Disconnected (DDEATH sent); back to Connected on DBIRTH re-publish.
-        private enum DeviceState { Initial, Connected, Disconnected }
+        // How long the processing loop accumulates observations before publishing
+        // one DDATA per device, instead of one MQTT packet per observation.
+        private const int BatchWindowMs = 100;
 
         private readonly SparkplugBRelayConfiguration _config;
         private readonly IMTConnectAgentBroker _agent;
         private VersionBNode _node;
         private CancellationTokenSource _cts;
+        private Channel<WorkItem> _work;
+        private Task _processTask;
         private volatile bool _isRunning;
 
-        // UUID → device Name (populated on DeviceAdded / Connected event)
+        // UUID → device Name (written by the processing loop, read on the agent's
+        // observation dispatch path)
         private readonly ConcurrentDictionary<string, string> _deviceNames = new();
-        // device Name → lifecycle state — drives DDEATH / re-DBIRTH decisions
-        private readonly ConcurrentDictionary<string, DeviceState> _deviceStates = new();
+
+        // device Name → DBIRTH published and device currently available (DDATA allowed).
+        // Touched only from the single processing loop — plain dictionary by design.
+        private readonly Dictionary<string, bool> _deviceBorn = new();
+
+        private enum WorkKind { Observation, DeviceAdded, PublishAllBirths, NodeRebirth }
+
+        private readonly struct WorkItem
+        {
+            public WorkKind Kind { get; }
+            public IObservation Observation { get; }
+            public IDevice Device { get; }
+
+            private WorkItem(WorkKind kind, IObservation observation, IDevice device)
+            {
+                Kind = kind;
+                Observation = observation;
+                Device = device;
+            }
+
+            public static WorkItem ForObservation(IObservation observation) => new(WorkKind.Observation, observation, null);
+            public static WorkItem ForDeviceAdded(IDevice device) => new(WorkKind.DeviceAdded, null, device);
+            public static WorkItem ForPublishAllBirths() => new(WorkKind.PublishAllBirths, null, null);
+            public static WorkItem ForNodeRebirth() => new(WorkKind.NodeRebirth, null, null);
+        }
 
         /// <summary>Raised for relay diagnostic messages (connection state, publish failures, lifecycle events).</summary>
         public event MTConnectLogEventHandler LogReceived;
@@ -46,11 +73,19 @@ namespace MTConnect.SparkplugB
             _agent = agent;
         }
 
-        /// <summary>Connects the Sparkplug edge node to the configured MQTT broker and wires up Connected / Disconnected / NCMD-Rebirth handlers.</summary>
+        /// <summary>Connects the Sparkplug edge node to the configured MQTT broker, starts the processing loop, and wires up Connected / Disconnected / NCMD-Rebirth handlers.</summary>
         public async Task Start()
         {
             _cts = new CancellationTokenSource();
             _isRunning = true;
+
+            _work = Channel.CreateBounded<WorkItem>(new BoundedChannelOptions(10000)
+            {
+                SingleReader = true,
+                // A slow or disconnected broker must never block the agent's
+                // observation path; prefer losing the oldest queued updates.
+                FullMode = BoundedChannelFullMode.DropOldest,
+            });
 
             _node = new VersionBNode(
                 new List<VersionBData.Metric>(),
@@ -58,13 +93,13 @@ namespace MTConnect.SparkplugB
                 logger: null);
 
             // SPB spec: on (re)connect publish NBIRTH then DBIRTH for all devices.
-            // State is cleared so the AVAILABILITY observations re-drive the Connected transitions.
-            _node.Connected += async (args) =>
+            // PublishDeviceBirthAsync re-derives each device's born state from its
+            // current AVAILABILITY, so no state clearing is needed here.
+            _node.Connected += (args) =>
             {
                 Log(MTConnectLogLevel.Information, "SparkplugB node connected — publishing DBIRTH for all devices");
-                _deviceStates.Clear();
-                foreach (var device in _agent.GetDevices())
-                    await PublishDeviceBirth(device);
+                _work.Writer.TryWrite(WorkItem.ForPublishAllBirths());
+                return Task.CompletedTask;
             };
 
             _node.Disconnected += (args) =>
@@ -75,16 +110,16 @@ namespace MTConnect.SparkplugB
 
             // SPB spec §6.4.3: NCMD with Node Control/Rebirth=true MUST cause the node to
             // republish NBIRTH followed by DBIRTH for every managed device.
-            _node.NodeCommandReceived += async (args) =>
+            _node.NodeCommandReceived += (args) =>
             {
                 if (!args.Metrics.Any(m => string.Equals(m.Name, "Node Control/Rebirth", StringComparison.OrdinalIgnoreCase)))
-                    return;
+                    return Task.CompletedTask;
                 Log(MTConnectLogLevel.Information, "NCMD Rebirth received — republishing NBIRTH and all DBIRTHs");
-                _deviceStates.Clear();
-                await _node.Rebirth(new List<VersionBData.Metric>());
-                foreach (var device in _agent.GetDevices())
-                    await PublishDeviceBirth(device);
+                _work.Writer.TryWrite(WorkItem.ForNodeRebirth());
+                return Task.CompletedTask;
             };
+
+            _processTask = Task.Run(() => ProcessWorkAsync(_cts.Token));
 
             var options = new SparkplugNodeOptions(
                 brokerAddress: _config.Server,
@@ -106,113 +141,145 @@ namespace MTConnect.SparkplugB
             await _node.Start(options, null!);
         }
 
-        /// <summary>Stops the edge node and cancels the reconnect loop; relies on the broker delivering the configured Sparkplug NDEATH will-message.</summary>
+        /// <summary>Stops the processing loop and the edge node; relies on the broker delivering the configured Sparkplug NDEATH will-message.</summary>
         public async Task Stop()
         {
             _isRunning = false;
+            _work?.Writer.TryComplete();
             _cts?.Cancel();
+            if (_processTask != null)
+            {
+                try { await _processTask; } catch { }
+            }
             if (_node != null) await _node.Stop();
         }
 
-        /// <summary>Handler invoked by the agent when a device is added or rediscovered; publishes DBIRTH for the new device.</summary>
-        public async Task OnDeviceAdded(IDevice device)
+        /// <summary>Handler invoked by the agent when a device is added or rediscovered; queues a DBIRTH for the new device.</summary>
+        public Task OnDeviceAdded(IDevice device)
         {
-            if (!_isRunning) return;
-            _deviceNames[device.Uuid] = device.Name;
-            await PublishDeviceBirth(device);
+            if (_isRunning && device != null) _work?.Writer.TryWrite(WorkItem.ForDeviceAdded(device));
+            return Task.CompletedTask;
         }
 
-        /// <summary>Handler invoked by the agent on every new observation; AVAILABILITY observations drive Connected/Disconnected transitions, all others are published as DDATA when the device is in Connected state.</summary>
-        public async Task OnObservationAdded(IObservation observation)
+        /// <summary>Handler invoked by the agent on every new observation. Non-blocking: the observation is queued and the processing loop batches DDATA per device over a short window; AVAILABILITY observations drive DDEATH / re-DBIRTH transitions.</summary>
+        public Task OnObservationAdded(IObservation observation)
         {
-            if (!_isRunning || _node == null) return;
-            if (!_deviceNames.TryGetValue(observation.DeviceUuid, out var deviceName)) return;
+            if (_isRunning && observation != null) _work?.Writer.TryWrite(WorkItem.ForObservation(observation));
+            return Task.CompletedTask;
+        }
 
-            if (observation.Type == "AVAILABILITY")
-            {
-                await HandleAvailabilityChange(deviceName, observation);
-                return;
-            }
+        private async Task ProcessWorkAsync(CancellationToken cancellationToken)
+        {
+            var reader = _work.Reader;
+            // deviceName → metrics accumulated during the current batch window
+            var pending = new Dictionary<string, List<VersionBData.Metric>>();
 
-            // SPB spec: DDATA must not be published for a device after DDEATH until DBIRTH re-establishes it.
-            // Default to Disconnected for unknown devices to prevent DDATA before first DBIRTH.
-            if (_deviceStates.GetValueOrDefault(deviceName, DeviceState.Disconnected) == DeviceState.Disconnected)
-                return;
-
-            var metric = SparkplugBMetricMapper.ToMetric(observation);
             try
             {
-                await _node.PublishDeviceData(new List<VersionBData.Metric> { metric }, deviceName);
+                while (await reader.WaitToReadAsync(cancellationToken))
+                {
+                    try { await Task.Delay(BatchWindowMs, cancellationToken); }
+                    catch (OperationCanceledException) { }
+
+                    while (reader.TryRead(out var item))
+                    {
+                        try
+                        {
+                            await HandleWorkItemAsync(item, pending);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log(MTConnectLogLevel.Warning, $"Relay work item failed: {ex.Message}");
+                        }
+                    }
+
+                    await FlushAllAsync(pending);
+                }
             }
+            catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                Log(MTConnectLogLevel.Warning, $"DDATA failed for {deviceName}: {ex.Message}");
+                Log(MTConnectLogLevel.Error, $"Relay processing loop stopped unexpectedly: {ex.Message}");
             }
         }
 
-        private async Task HandleAvailabilityChange(string deviceName, IObservation observation)
+        private async Task HandleWorkItemAsync(WorkItem item, Dictionary<string, List<VersionBData.Metric>> pending)
+        {
+            switch (item.Kind)
+            {
+                case WorkKind.Observation:
+                    if (!_deviceNames.TryGetValue(item.Observation.DeviceUuid, out var deviceName)) return;
+
+                    if (item.Observation.Type == "AVAILABILITY")
+                    {
+                        // Flush queued DDATA first so data cannot straddle the
+                        // DDEATH / re-DBIRTH boundary this transition may publish.
+                        await FlushDeviceAsync(deviceName, pending);
+                        await HandleAvailabilityChangeAsync(deviceName, item.Observation, pending);
+                        return;
+                    }
+
+                    // SPB spec: no DDATA before DBIRTH or after DDEATH.
+                    if (!_deviceBorn.GetValueOrDefault(deviceName)) return;
+
+                    Append(pending, deviceName, SparkplugBMetricMapper.ToMetric(item.Observation));
+                    return;
+
+                case WorkKind.DeviceAdded:
+                    await PublishDeviceBirthAsync(item.Device, pending);
+                    return;
+
+                case WorkKind.PublishAllBirths:
+                    foreach (var device in _agent.GetDevices() ?? Enumerable.Empty<IDevice>())
+                        await PublishDeviceBirthAsync(device, pending);
+                    return;
+
+                case WorkKind.NodeRebirth:
+                    await _node.Rebirth(new List<VersionBData.Metric>());
+                    foreach (var device in _agent.GetDevices() ?? Enumerable.Empty<IDevice>())
+                        await PublishDeviceBirthAsync(device, pending);
+                    return;
+            }
+        }
+
+        private async Task HandleAvailabilityChangeAsync(string deviceName, IObservation observation, Dictionary<string, List<VersionBData.Metric>> pending)
         {
             var raw = observation.IsUnavailable ? null : observation.GetValue(ValueKeys.Result);
             var isAvailable = string.Equals(raw, "AVAILABLE", StringComparison.OrdinalIgnoreCase);
 
-            // Ensure the device has a state entry so TryUpdate works (ConcurrentDictionary
-            // TryUpdate returns false if the key doesn't exist).
-            _deviceStates.GetOrAdd(deviceName, DeviceState.Initial);
-
             if (!isAvailable)
             {
-                // Atomic CAS: only the first thread transitioning from non-Disconnected wins.
-                // This prevents duplicate DDEATHs if two UNAVAILABLE observations race.
-                if (_deviceStates.TryUpdate(deviceName, DeviceState.Disconnected, DeviceState.Connected) ||
-                    _deviceStates.TryUpdate(deviceName, DeviceState.Disconnected, DeviceState.Initial))
+                if (_deviceBorn.GetValueOrDefault(deviceName))
                 {
-                    await PublishDeviceDeath(deviceName);
+                    _deviceBorn[deviceName] = false;
+                    await PublishDeviceDeathAsync(deviceName);
                 }
-                // Regardless of whether we won the CAS, don't send DDATA for this observation.
                 return;
             }
 
-            // Machine came online.
-            if (_deviceStates.TryUpdate(deviceName, DeviceState.Connected, DeviceState.Disconnected))
+            // Machine came online. If DDEATH was sent (or DBIRTH never succeeded),
+            // re-publish DBIRTH before any DDATA can flow.
+            if (!_deviceBorn.GetValueOrDefault(deviceName))
             {
-                // Was disconnected (DDEATH was sent) — must re-publish DBIRTH before DDATA can flow.
                 var device = _agent.GetDevices()?.FirstOrDefault(d => d.Name == deviceName);
-                if (device != null)
-                {
-                    await PublishDeviceBirth(device);
-                }
-                else
-                {
-                    // Device no longer known — revert to Disconnected to suppress DDATA.
-                    _deviceStates[deviceName] = DeviceState.Disconnected;
-                }
-                // If DBIRTH failed (or device not found), state is Disconnected — suppress DDATA.
-                if (_deviceStates.GetValueOrDefault(deviceName, DeviceState.Disconnected) == DeviceState.Disconnected)
-                    return;
-            }
-            else
-            {
-                // Initial → Connected: DBIRTH was already published at startup with current values.
-                _deviceStates.TryUpdate(deviceName, DeviceState.Connected, DeviceState.Initial);
+                if (device == null) return;
+                await PublishDeviceBirthAsync(device, pending);
+                if (!_deviceBorn.GetValueOrDefault(deviceName)) return;
             }
 
-            // Publish the AVAILABILITY change as DDATA so subscribers see AVAILABLE immediately.
-            var metric = SparkplugBMetricMapper.ToMetric(observation);
-            try
-            {
-                await _node.PublishDeviceData(new List<VersionBData.Metric> { metric }, deviceName);
-            }
-            catch (Exception ex)
-            {
-                Log(MTConnectLogLevel.Warning, $"DDATA (AVAILABILITY) failed for {deviceName}: {ex.Message}");
-            }
+            // Queue the AVAILABILITY change as DDATA so subscribers see AVAILABLE
+            // at the next flush.
+            Append(pending, deviceName, SparkplugBMetricMapper.ToMetric(observation));
         }
 
-        private async Task PublishDeviceBirth(IDevice device)
+        private async Task PublishDeviceBirthAsync(IDevice device, Dictionary<string, List<VersionBData.Metric>> pending)
         {
-            if (!_isRunning || _node == null) return;
+            if (!_isRunning || _node == null || device == null) return;
 
             _deviceNames[device.Uuid] = device.Name;
+
+            // Don't let DDATA queued before this (re)birth publish after it.
+            await FlushDeviceAsync(device.Name, pending);
 
             // SPB spec: DBIRTH values MUST reflect current device state.
             // Query the agent for current observations so subscribers see real values, not stale zeros.
@@ -224,36 +291,28 @@ namespace MTConnect.SparkplugB
             {
                 await _node.PublishDeviceBirthMessage(metrics, device.Name, logger: null);
                 Log(MTConnectLogLevel.Information, $"Published DBIRTH for {device.Name} ({metrics.Count} metrics)");
-                // Mark as Initial only if no state entry exists yet — preserves Connected/Disconnected
-                // state when re-DBIRTH is triggered from the reconnect path.
-                _deviceStates.TryAdd(device.Name, DeviceState.Initial);
 
-                // Immediately resolve state from current AVAILABILITY so DDATA suppression is correct
-                // without waiting for the next AVAILABILITY observation to arrive.
+                // Resolve born state from current AVAILABILITY so DDATA suppression is
+                // correct without waiting for the next AVAILABILITY observation.
                 var availObs = currentObs?.FirstOrDefault(o => o.Type == "AVAILABILITY");
                 var isAvailable = string.Equals(
                     availObs?.GetValue(ValueKeys.Result), "AVAILABLE", StringComparison.OrdinalIgnoreCase);
-                if (isAvailable)
-                {
-                    _deviceStates.TryUpdate(device.Name, DeviceState.Connected, DeviceState.Initial);
-                }
-                else
+                _deviceBorn[device.Name] = isAvailable;
+                if (!isAvailable)
                 {
                     // Machine is currently offline — publish DDEATH immediately after DBIRTH.
-                    if (_deviceStates.TryUpdate(device.Name, DeviceState.Disconnected, DeviceState.Initial))
-                        await PublishDeviceDeath(device.Name);
+                    await PublishDeviceDeathAsync(device.Name);
                 }
             }
             catch (Exception ex)
             {
                 Log(MTConnectLogLevel.Warning, $"DBIRTH failed for {device.Name}: {ex.Message}");
-                // On failure, set state to Disconnected so DDATA is suppressed
-                // until a successful DBIRTH re-establishes the device.
-                _deviceStates[device.Name] = DeviceState.Disconnected;
+                // Suppress DDATA until a successful DBIRTH re-establishes the device.
+                _deviceBorn[device.Name] = false;
             }
         }
 
-        private async Task PublishDeviceDeath(string deviceName)
+        private async Task PublishDeviceDeathAsync(string deviceName)
         {
             if (!_isRunning || _node == null) return;
             try
@@ -264,6 +323,41 @@ namespace MTConnect.SparkplugB
             catch (Exception ex)
             {
                 Log(MTConnectLogLevel.Warning, $"DDEATH failed for {deviceName}: {ex.Message}");
+            }
+        }
+
+        private static void Append(Dictionary<string, List<VersionBData.Metric>> pending, string deviceName, VersionBData.Metric metric)
+        {
+            if (!pending.TryGetValue(deviceName, out var metrics))
+            {
+                metrics = new List<VersionBData.Metric>();
+                pending[deviceName] = metrics;
+            }
+            metrics.Add(metric);
+        }
+
+        private async Task FlushAllAsync(Dictionary<string, List<VersionBData.Metric>> pending)
+        {
+            if (pending.Count == 0) return;
+            foreach (var deviceName in pending.Keys.ToList())
+            {
+                await FlushDeviceAsync(deviceName, pending);
+            }
+        }
+
+        private async Task FlushDeviceAsync(string deviceName, Dictionary<string, List<VersionBData.Metric>> pending)
+        {
+            if (!pending.TryGetValue(deviceName, out var metrics)) return;
+            pending.Remove(deviceName);
+            if (metrics.Count == 0) return;
+
+            try
+            {
+                await _node.PublishDeviceData(metrics, deviceName);
+            }
+            catch (Exception ex)
+            {
+                Log(MTConnectLogLevel.Warning, $"DDATA failed for {deviceName} ({metrics.Count} metrics): {ex.Message}");
             }
         }
 
