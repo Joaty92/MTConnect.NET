@@ -1,5 +1,7 @@
 # MTConnect Agent — Starter Kit
 
+> Part of the [fork additions](../../FORK.md) to MTConnect.NET.
+
 Everything a factory server needs to run the agent, minus the compiled image itself. Unzip anywhere, load the `.tar`, edit config, start.
 
 ## What's in this folder

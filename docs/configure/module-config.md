@@ -10,6 +10,9 @@ The module set:
 - [MQTT adapter](#mqtt-adapter) — inbound consumer from an external MQTT broker.
 - [SHDR adapter](#shdr-adapter) — inbound TCP-SHDR adapter.
 - [HTTP adapter](#http-adapter) — inbound HTTP-poll adapter.
+- [Sparkplug B relay](#sparkplug-b-relay) — outbound Sparkplug B edge node *(fork addition)*.
+- [OPC UA adapter](#opc-ua-adapter) — inbound OPC UA subscription client *(fork addition)*.
+- [Haas Ethernet adapter](#haas-ethernet-adapter) — inbound Haas Q-code poller *(fork addition)*.
 
 Every module is declared in `agent.config.yaml` under `modules:` as a single-key map. The key is the module's name; the value is the module's config object.
 
@@ -193,6 +196,67 @@ Polls an HTTP endpoint that returns MTConnect-shaped responses. Module key: `htt
 
 The HTTP adapter is most often used to chain agents — a regional aggregator agent polling per-cell agents — but works against any HTTP endpoint that emits the right envelope.
 
+## Sparkplug B relay
+
+*Fork addition.* Publishes every device on the agent to an MQTT broker as a Sparkplug B edge node — NBIRTH/DBIRTH on connect, batched DDATA on observation changes, DDEATH driven by AVAILABILITY, NCMD rebirth honoured. Module key: `sparkplug-relay`. Implementation: `MTConnect.NET-AgentModule-SparkplugBRelay`. Full walk-through in the module's ReadMe (`agent/Modules/MTConnect.NET-AgentModule-SparkplugBRelay/ReadMe.md`).
+
+```yaml
+- sparkplug-relay:
+    server: broker.example.com     # MQTT broker hostname.
+    port: 8883                     # broker port (8883 = TLS convention).
+    groupId: Factory               # Sparkplug Group ID (topic namespace).
+    nodeId: Agent1                 # Sparkplug Edge Node ID.
+    clientId: MTConnect-Agent1     # optional; defaults to MTConnect-{guid}.
+    username: mtconnect            # optional broker auth.
+    password: <secret>
+    reconnectInterval: 10000       # delay between reconnect attempts (ms).
+
+    useTls: true                   # optional; enable TLS.
+    caCertificateFile: certs/broker-ca.crt   # optional; pin the broker CA (PEM or DER).
+    clientCertificateFile: certs/agent1.pfx  # optional; PKCS#12 bundle → mutual TLS.
+    clientCertificatePassword: <secret>
+```
+
+All devices share one edge-node identity (`groupId` + `nodeId`). DDATA is batched per device over a ~100 ms window, and the agent's observation path only pays a non-blocking enqueue, so a slow broker never stalls ingestion. `allowUntrustedCertificates: true` disables server-certificate validation — bench testing only. Relative certificate paths resolve against the agent binary directory.
+
+## OPC UA adapter
+
+*Fork addition.* Opens an OPC UA session to a server (typically a CNC controller), subscribes to the NodeIds mapped in a YAML profile from `profiles/`, and feeds value notifications into the agent buffer. The device model resolves in priority order: user-authored `devices/<key>.xml` → shipped `profiles/<name>.template.xml` → auto-generated flat device. Module key: `opcua-adapter`. Implementation: `MTConnect.NET-AgentModule-OpcUaAdapter`.
+
+```yaml
+- opcua-adapter:
+    deviceKey: Machine-01          # the Device this adapter feeds.
+    endpoint: opc.tcp://192.168.1.50:4840
+    profile: sinumerik_840d        # references profiles/sinumerik_840d.yaml.
+    securityPolicy: None           # None | Basic256Sha256.
+    identity:
+      mode: anonymous              # anonymous | username.
+    samplingInterval: 250          # server-side sampling interval (ms).
+    publishingInterval: 1000       # notification push interval (ms).
+    reconnectInterval: 5000        # reconnect delay after keep-alive failure (ms).
+    sessionTimeout: 60000          # requested session timeout (ms).
+```
+
+One block per machine. On session loss every mapped data item flips to `UNAVAILABLE`; after reconnect all mapped nodes are re-read so unchanged values recover immediately instead of waiting for their next change.
+
+## Haas Ethernet adapter
+
+*Fork addition.* Polls a Haas CNC over TCP with Q-code and macro-variable commands — usually through a Moxa NPort serial-to-Ethernet converter on the HMI's RS-232 port. Eleven built-in Q-codes and eight macro variables cover identity, mode, program state, counters, and axis positions; extras are declared inline. Module key: `haas-ethernet`. Implementation: `MTConnect.NET-AgentModule-HaasEthernet`.
+
+```yaml
+- haas-ethernet:
+    deviceKey: HAAS-01             # must match devices/<key>.xml.
+    server: 192.168.127.254        # Moxa NPort IP (or direct-Ethernet Haas).
+    port: 4001                     # Moxa port 1 = 4001, port 2 = 4002, …
+    pollInterval: 1.0              # seconds between poll cycles.
+    commands:                      # extra Q-codes beyond the built-ins.
+    - { name: air_pressure, command: "?Q999", pollEvery: 30 }
+    macroVariables:                # extra macro registers beyond the built-ins.
+    - { name: feedrate, variable: 3003 }
+```
+
+`pollOnce: true` fetches a value once per connection session (identity values); `pollEvery: <seconds>` throttles slow-moving counters. On transport failure the module publishes `avail=UNAVAILABLE` and skips the rest of the cycle; after recovery the once-per-session values are re-polled automatically.
+
 ## Configuration objects
 
 Each module's YAML keys deserialize into a configuration class:
@@ -205,6 +269,9 @@ Each module's YAML keys deserialize into a configuration class:
 | `mqtt-adapter` | [`MTConnect.Configurations.MqttAdapterModuleConfiguration`](/api/MTConnect.Configurations.MqttAdapterModuleConfiguration) |
 | `shdr-adapter` | [`MTConnect.Configurations.ShdrAdapterModuleConfiguration`](/api/MTConnect.Configurations.ShdrAdapterModuleConfiguration) |
 | `http-adapter` | [`MTConnect.Configurations.HttpAdapterModuleConfiguration`](/api/MTConnect.Configurations.HttpAdapterModuleConfiguration) |
+| `sparkplug-relay` | `MTConnect.Configurations.SparkplugBRelayModuleConfiguration` *(fork addition — no generated API page)* |
+| `opcua-adapter` | `MTConnect.Configurations.OpcUaAdapterModuleConfiguration` *(fork addition — no generated API page)* |
+| `haas-ethernet` | `MTConnect.Configurations.HaasEthernetAdapterModuleConfiguration` *(fork addition — no generated API page)* |
 
 Programmatic configuration uses the class directly:
 

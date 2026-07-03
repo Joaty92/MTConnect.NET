@@ -1,5 +1,7 @@
 # MTConnect.NET-AgentModule-SparkplugBRelay
 
+> Part of the [fork additions](../../../FORK.md) to MTConnect.NET.
+
 In-process agent module that bridges every device on this agent to **Sparkplug B** over MQTT. Each MTConnect device becomes a Sparkplug "Device" under one shared Edge Node identity; observations are republished as `DDATA` as they land in the agent buffer.
 
 Implements the full Sparkplug B lifecycle:

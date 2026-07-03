@@ -331,3 +331,6 @@ docs/api/**
 # See deploy/README.md for the shipping workflow.
 deploy/*.tar
 deploy/*.tar.gz
+
+# Claude Code session rules — local working notes, not repo content.
+CLAUDE.md

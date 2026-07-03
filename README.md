@@ -1,17 +1,8 @@
 ![MTConnect.NET Logo](https://raw.githubusercontent.com/TrakHound/MTConnect.NET/master/img/logo.png) 
 
 > **Fork note** — this is a personal fork of [TrakHound/MTConnect.NET](https://github.com/TrakHound/MTConnect.NET)
-> with two custom agent modules and a developer tool added on top:
->
-> | Addition | What it does | Path |
-> | --- | --- | --- |
-> | **Sparkplug B Relay module** | Relays observations as Sparkplug B `NBIRTH` / `DBIRTH` / `DDATA` / `DDEATH` to an MQTT broker. Per-device DBIRTH on connect; DDEATH driven by AVAILABILITY transitions. | [`agent/Modules/MTConnect.NET-AgentModule-SparkplugBRelay/`](agent/Modules/MTConnect.NET-AgentModule-SparkplugBRelay/) |
-> | **OPC UA Adapter module** | In-process OPC UA client. Subscribes to NodeIds defined in a YAML profile, pushes observations into the agent buffer. Three-tier device-model resolution (user XML → shipped template → auto-generated flat). Prefixes DataItem ids with `deviceKey_` for `/probe` uniqueness across multiple devices. | [`agent/Modules/MTConnect.NET-AgentModule-OpcUaAdapter/`](agent/Modules/MTConnect.NET-AgentModule-OpcUaAdapter/) ([ReadMe](agent/Modules/MTConnect.NET-AgentModule-OpcUaAdapter/ReadMe.md)) |
-> | **OPC UA Profile Generator GUI** | PySide6 desktop app that browses an OPC UA server, lets you tick Variables to subscribe to with archetype-biased autocomplete over the 259 MTConnect v2.7 spec types, and emits the `<name>.yaml` + `<name>.template.xml` profile bundle the OpcUaAdapter consumes. | [`tools/opcua-profile-gui/`](tools/opcua-profile-gui/) |
->
-> See the linked folder READMEs for the per-module workflow. The fork tracks
-> upstream `master` via the `upstream` remote; `git fetch upstream && git rebase upstream/master`
-> from a feature branch keeps things in sync.
+> adding Sparkplug B relay, OPC UA and Haas Ethernet adapter modules, an OPC UA profile GUI,
+> and factory deployment tooling. **See [FORK.md](FORK.md) for the map of all additions.**
 
 # MTConnect.NET
 [View Documentation Site](https://trakhound.github.io/MTConnect.NET/)

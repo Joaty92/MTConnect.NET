@@ -1,5 +1,7 @@
 # MTConnect.NET — Deploying the Agent to a Factory Server
 
+> Part of the [fork additions](../FORK.md) to MTConnect.NET.
+
 This folder holds the tools you need to ship the MTConnect agent to a factory server **without giving that server the source code**. Layman-friendly walkthrough, no assumed Docker expertise.
 
 Paths in this doc are written relative to **this repo's root** (where the `Dockerfile` and `README.md` at the top live). Adjust for your local checkout.

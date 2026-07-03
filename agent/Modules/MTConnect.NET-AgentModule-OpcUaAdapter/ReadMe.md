@@ -1,5 +1,7 @@
 # MTConnect.NET-AgentModule-OpcUaAdapter
 
+> Part of the [fork additions](../../../FORK.md) to MTConnect.NET.
+
 In-process agent module that opens an OPC UA `Session` to a server (typically a CNC controller), subscribes to a list of NodeIds defined in a YAML profile, and forwards each value notification to the agent's observation buffer via `IMTConnectAgentBroker.AddObservation(...)`.
 
 One block per device. Downstream relays (MQTT, SparkplugB, HTTP) pick the observations up from the buffer automatically — there is no protocol-specific publishing code here.

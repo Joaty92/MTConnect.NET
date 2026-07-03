@@ -1,5 +1,7 @@
 # OPCUAProfilexmlGUI
 
+> Part of the [fork additions](../../FORK.md) to MTConnect.NET.
+
 PySide6 desktop app for selecting OPC UA Variables from a server and generating an MTConnect profile YAML + device template for use with [`MTConnect.NET-AgentModule-OpcUaAdapter`](../../agent/Modules/MTConnect.NET-AgentModule-OpcUaAdapter/).
 
 This folder is the **canonical source location**. Ship a built `.exe` (produced via PyInstaller — see [Packaging](#packaging) below) to any workstation that needs to author OPC UA profiles; the source stays in the repo, the binary is gitignored.
