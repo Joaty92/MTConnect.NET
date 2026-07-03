@@ -26,6 +26,18 @@ namespace MTConnect.SparkplugB
         // one DDATA per device, instead of one MQTT packet per observation.
         private const int BatchWindowMs = 100;
 
+        // SPB spec: every NBIRTH MUST include a "Node Control/Rebirth" Boolean metric
+        // (value false). SparkplugNet builds NBIRTH from the node's known-metrics list
+        // AND filters incoming NCMD metrics against that same list — with an empty
+        // list the metric is missing from NBIRTH and a host's Rebirth NCMD is
+        // silently stripped before NodeCommandReceived fires.
+        private const string NodeControlRebirthName = "Node Control/Rebirth";
+
+        private static List<VersionBData.Metric> BuildNodeKnownMetrics() => new()
+        {
+            new VersionBData.Metric(NodeControlRebirthName, VersionBData.DataType.Boolean, false, DateTimeOffset.UtcNow),
+        };
+
         private readonly SparkplugBRelayConfiguration _config;
         private readonly IMTConnectAgentBroker _agent;
         private VersionBNode _node;
@@ -88,7 +100,7 @@ namespace MTConnect.SparkplugB
             });
 
             _node = new VersionBNode(
-                new List<VersionBData.Metric>(),
+                BuildNodeKnownMetrics(),
                 SparkplugSpecificationVersion.Version30,
                 logger: null);
 
@@ -112,7 +124,7 @@ namespace MTConnect.SparkplugB
             // republish NBIRTH followed by DBIRTH for every managed device.
             _node.NodeCommandReceived += (args) =>
             {
-                if (!args.Metrics.Any(m => string.Equals(m.Name, "Node Control/Rebirth", StringComparison.OrdinalIgnoreCase)))
+                if (!args.Metrics.Any(m => string.Equals(m.Name, NodeControlRebirthName, StringComparison.OrdinalIgnoreCase)))
                     return Task.CompletedTask;
                 Log(MTConnectLogLevel.Information, "NCMD Rebirth received — republishing NBIRTH and all DBIRTHs");
                 _work.Writer.TryWrite(WorkItem.ForNodeRebirth());
@@ -235,7 +247,10 @@ namespace MTConnect.SparkplugB
                     return;
 
                 case WorkKind.NodeRebirth:
-                    await _node.Rebirth(new List<VersionBData.Metric>());
+                    // Rebirth REPLACES the node's known-metrics storage — pass the same
+                    // list as at startup or the Node Control/Rebirth metric disappears
+                    // from the new NBIRTH and later NCMD rebirths get filtered out.
+                    await _node.Rebirth(BuildNodeKnownMetrics());
                     foreach (var device in _agent.GetDevices() ?? Enumerable.Empty<IDevice>())
                         await PublishDeviceBirthAsync(device, pending);
                     return;
@@ -278,8 +293,11 @@ namespace MTConnect.SparkplugB
 
             _deviceNames[device.Uuid] = device.Name;
 
-            // Don't let DDATA queued before this (re)birth publish after it.
-            await FlushDeviceAsync(device.Name, pending);
+            // Discard DDATA queued before this (re)birth: publishing it now would
+            // put data from the previous birth epoch after the new session's NBIRTH
+            // but before this device's DBIRTH (spec violation), and the DBIRTH below
+            // carries current values anyway.
+            pending.Remove(device.Name);
 
             // SPB spec: DBIRTH values MUST reflect current device state.
             // Query the agent for current observations so subscribers see real values, not stale zeros.
