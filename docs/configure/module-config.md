@@ -239,6 +239,12 @@ All devices share one edge-node identity (`groupId` + `nodeId`). DDATA is batche
 
 One block per machine. On session loss every mapped data item flips to `UNAVAILABLE`; after reconnect all mapped nodes are re-read so unchanged values recover immediately instead of waiting for their next change.
 
+### Authoring profiles: the OPC UA profile GUI
+
+Profiles don't have to be written by hand. `tools/opcua-profile-gui/` (fork addition) is a PySide6 desktop app that connects to the OPC UA server, walks the address space showing live values, and lets you tick the Variables to map — suggesting MTConnect types and units from the spec vocabulary as you pick. It emits the `<name>.yaml` mappings file **and** the matching `<name>.template.xml` device template this module consumes: drop both into `profiles/` and set `profile: <name>` in the block above.
+
+Run it from source (`pip install -r requirements.txt`, then `python main.py`) or ship the PyInstaller-built `.exe` to any workstation — full walkthrough in `tools/opcua-profile-gui/README.md`.
+
 ## Haas Ethernet adapter
 
 *Fork addition.* Polls a Haas CNC over TCP with Q-code and macro-variable commands — usually through a Moxa NPort serial-to-Ethernet converter on the HMI's RS-232 port. Eleven built-in Q-codes and eight macro variables cover identity, mode, program state, counters, and axis positions; extras are declared inline. Module key: `haas-ethernet`. Implementation: `MTConnect.NET-AgentModule-HaasEthernet`.

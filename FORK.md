@@ -32,7 +32,7 @@ any SHDR-speaking adapter ────────────(SHDR over TCP)─
 | **Haas Ethernet adapter** (module + `MTConnect.NET-Haas` library) | YAML-driven Q-code / macro-variable polling engine for Haas CNCs, usually via a Moxa NPort serial-to-Ethernet converter. | [Module ReadMe](agent/Modules/MTConnect.NET-AgentModule-HaasEthernet/ReadMe.md) |
 | **OPC UA profile GUI** | PySide6 desktop app: browse an OPC UA server, tick Variables, get the `<name>.yaml` + `<name>.template.xml` profile bundle the OPC UA adapter consumes. | [Tool README](tools/opcua-profile-gui/README.md) |
 | **Deployment tooling** | Dockerfile, image-shipping workflow, and a zip-and-go starter kit for factory servers (no source tree on the target). | [deploy/README](deploy/README.md) · [starter-kit README](deploy/starter-kit/README.md) |
-| **Docs additions** | The three fork modules are documented alongside upstream's in the docs site. | [docs/configure/module-config.md](docs/configure/module-config.md) |
+| **Docs additions** | The three fork modules and the profile GUI are documented alongside upstream's modules in the docs site; building/serving the site (including via docker-compose) is covered in the docs README. | [docs/configure/module-config.md](docs/configure/module-config.md) · [docs/README.md](docs/README.md) |
 
 ## Which path for which machine?
 
