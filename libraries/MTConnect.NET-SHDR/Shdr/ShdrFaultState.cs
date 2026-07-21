@@ -296,10 +296,13 @@ namespace MTConnect.Shdr
                         condition.DataItemKey = x;
                     }
 
-                    // Set Condition Level
+                    // Set Condition Level. Case-insensitive (ignoreCase: true) to match the rest of
+                    // the codebase (ConvertEnum) and the reference cppagent's lenient parsing: an
+                    // adapter that sends "fault" instead of "FAULT" otherwise throws here, the catch
+                    // swallows it, FromLine returns null, and the line is dropped silently.
                     x = ShdrLine.GetNextValue(y);
                     y = ShdrLine.GetNextSegment(y);
-                    condition.Level = (ConditionLevel)Enum.Parse(typeof(ConditionLevel), x);
+                    condition.Level = (ConditionLevel)Enum.Parse(typeof(ConditionLevel), x, true);
 
                     if (y != null)
                     {

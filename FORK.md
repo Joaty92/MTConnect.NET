@@ -55,7 +55,7 @@ git checkout master && git merge --ff-only upstream/master
 git checkout <feature-branch> && git merge master
 ```
 
-Fork content lives in fork-owned files/folders wherever possible, so upstream merges stay conflict-free; the deliberate exceptions are the short fork-note in [README.md](README.md) and the fork-module sections in [docs/configure/module-config.md](docs/configure/module-config.md).
+Fork content lives in fork-owned files/folders wherever possible, so upstream merges stay conflict-free. The deliberate exceptions are the short fork-note in [README.md](README.md), the fork-module sections in [docs/configure/module-config.md](docs/configure/module-config.md), and two targeted edits to the upstream `MTConnect.NET-SHDR` library: the `IgnoreHeartbeatOnChange` adapter setting in `ShdrClient.cs`, and a case-insensitive condition-level parse in `ShdrFaultState.cs` (`Enum.Parse(…, ignoreCase: true)`). Without the latter, an adapter that sends a lower-case level such as `fault` instead of `FAULT` hits a case-sensitive `Enum.Parse`, the surrounding `catch` swallows the exception, `FromLine` returns null, and the condition line is dropped **silently** — the condition never leaves `UNAVAILABLE`. Both are candidates to upstream as PRs.
 
 ## Contributor guard rails
 
