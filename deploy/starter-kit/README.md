@@ -42,6 +42,23 @@ docker logs --follow mtconnect-agent-spb
 # Browse http://<target-host>:5003/probe
 ```
 
+## Time synchronization (required)
+
+Every observation this stack produces carries a timestamp, and different adapters use **different clocks**:
+
+| Data | Time base |
+| --- | --- |
+| Haas Ethernet adapter observations | **Agent host clock** (values are stamped on receipt — Q-codes carry no machine time) |
+| SHDR adapter observations + all availability events | **Agent host clock** |
+| OPC UA adapter observations | **Controller's clock** (OPC UA source timestamps are passed through) |
+| Agent logs | UTC on the agent host |
+
+For downtime analytics, cycle-time KPIs, and cross-machine event ordering to mean anything:
+
+- **Run NTP on the agent host** (the container inherits the host clock). Prefer *slewing* corrections (chrony default; `w32time` with small offsets) over hard steps — the polling throttles and SHDR heartbeat assume a steady clock.
+- **Sync the CNC controllers' clocks too** where the adapter passes machine time through (OPC UA). The agent logs a warning when a controller's timestamps drift more than ~5 s from the agent clock.
+- If a source's clock can't be disciplined, the agent-wide `ignoreTimestamps: true` (or the per-adapter override) re-stamps everything with agent time — you lose source-time accuracy but gain a single consistent time base.
+
 ## Updating to a newer image
 
 ```powershell

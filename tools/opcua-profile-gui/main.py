@@ -146,6 +146,22 @@ def _stringify_status(status: ua.StatusCode | None) -> str:
         return str(status)
 
 
+def _status_with_ts(status: ua.StatusCode | None, source_ts) -> str:
+    """Status string plus the value's SourceTimestamp (UTC), e.g. 'Good @ 14:03:22Z'.
+
+    Surfacing the source timestamp is what makes frozen/stale nodes visible while
+    authoring a profile — a plausible 'Good' value whose timestamp is hours old is
+    a dead sensor, and would otherwise be shipped into the runtime mapping."""
+    s = _stringify_status(status)
+    if source_ts is not None:
+        try:
+            stamp = f"{source_ts:%H:%M:%S}Z"
+            s = f"{s} @ {stamp}" if s else f"@ {stamp}"
+        except Exception:
+            pass
+    return s
+
+
 async def _read_friendly_datatype(client: Client, datatype_node_id: ua.NodeId) -> str:
     """Resolve a DataType NodeId to its BrowseName (e.g. 'Int16', 'Boolean')."""
     try:
@@ -264,7 +280,7 @@ async def _describe_node(client: Client, child) -> tuple | None:
         try:
             dv = await child.read_data_value()
             current_value = _format_value(dv.Value.Value if dv.Value is not None else None)
-            current_status = _stringify_status(dv.StatusCode)
+            current_status = _status_with_ts(dv.StatusCode, dv.SourceTimestamp)
         except Exception as exc:
             current_status = f"Bad: read failed ({type(exc).__name__})"
 
@@ -654,7 +670,7 @@ class CertificatesDialog(QDialog):
 def _status_brush(status: str) -> QBrush | None:
     if status.startswith("Bad"):
         return QBrush(QColor(180, 80, 80))
-    if status == "Good":
+    if status.startswith("Good"):
         return QBrush(QColor(80, 140, 80))
     return None
 
@@ -1247,9 +1263,12 @@ class MainWindow(QMainWindow):
         try:
             opc_nodes = [self.client.get_node(n.node_id) for _, n in items_and_nodes]
             try:
-                data_values = await self.client.read_values(opc_nodes)
-                statuses = ["Good"] * len(data_values)
-                values = [_format_value(v) for v in data_values]
+                # Batch-read full DataValues (not bare values) so real StatusCodes and
+                # SourceTimestamps survive — fabricating "Good" here previously hid
+                # dead/frozen nodes behind a healthy status.
+                data_values = await self.client.read_attributes(opc_nodes, ua.AttributeIds.Value)
+                values = [_format_value(dv.Value.Value if dv.Value is not None else None) for dv in data_values]
+                statuses = [_status_with_ts(dv.StatusCode, dv.SourceTimestamp) for dv in data_values]
             except Exception:
                 # Fall back to one-by-one if batch read isn't supported by server.
                 values, statuses = [], []
@@ -1257,7 +1276,7 @@ class MainWindow(QMainWindow):
                     try:
                         dv = await opc_node.read_data_value()
                         values.append(_format_value(dv.Value.Value if dv.Value is not None else None))
-                        statuses.append(_stringify_status(dv.StatusCode))
+                        statuses.append(_status_with_ts(dv.StatusCode, dv.SourceTimestamp))
                     except Exception as exc:
                         values.append("")
                         statuses.append(f"Bad: {type(exc).__name__}")
