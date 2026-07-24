@@ -7,7 +7,7 @@ In-process agent module that bridges every device on this agent to **Sparkplug B
 Implements the full Sparkplug B lifecycle:
 
 - **NBIRTH** on first broker connect — declares this Edge Node (includes the spec-required `Node Control/Rebirth` metric).
-- **DBIRTH** per device on connect / `DeviceAdded` — full current-value snapshot for every DataItem in the device.
+- **DBIRTH** per device on connect / `DeviceAdded` — full current-value snapshot for every DataItem in the device, with each metric carrying its observation's **real timestamp** (not the rebirth time), so historians don't record phantom updates at every reconnect.
 - **DDATA** batched per device as values change.
 - **DDEATH** when a device flips to `AVAILABILITY=UNAVAILABLE`, with a re-`DBIRTH` if it comes back.
 - **NDEATH** is registered as the broker's last-will — if the agent process dies, every downstream consumer sees all devices on this node go offline simultaneously.

@@ -19,8 +19,9 @@ namespace MTConnect.SparkplugB
         public static Metric ToMetric(IObservation observation)
         {
             var name = BuildObservationMetricName(observation);
-            var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(
-                new DateTimeOffset(observation.Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds());
+            // Observation.Timestamp is Kind=Utc (the agent buffer round-trips it
+            // through unix ticks), so a zero offset is always correct here.
+            var timestamp = new DateTimeOffset(observation.Timestamp, TimeSpan.Zero);
 
             var isSample = observation.Category == DataItemCategory.SAMPLE;
 
@@ -88,13 +89,18 @@ namespace MTConnect.SparkplugB
                 ?? new Dictionary<string, IObservationOutput>();
 
             var metrics = new List<Metric>();
-            var ts = DateTimeOffset.UtcNow;
+            var now = DateTimeOffset.UtcNow;
 
             foreach (var di in device.GetDataItems())
             {
                 var metricName = BuildDataItemMetricName(di);
                 byId.TryGetValue(di.Id ?? "", out var obs);
                 var rawValue = obs?.GetValue(ValueKeys.Result);
+
+                // Carry each observation's real timestamp into the DBIRTH metric.
+                // Stamping everything 'now' would fabricate a fresh-data event for
+                // stale values in downstream historians at every (re)birth/reconnect.
+                var ts = obs != null ? new DateTimeOffset(obs.Timestamp, TimeSpan.Zero) : now;
                 var hasValue = rawValue != null
                     && !string.Equals(rawValue, "UNAVAILABLE", StringComparison.OrdinalIgnoreCase);
 
