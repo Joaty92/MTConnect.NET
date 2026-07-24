@@ -68,8 +68,9 @@ Your `devices/<deviceKey>.xml` needs DataItems whose **names match these keys** 
 
 ## Availability and reconnect behaviour
 
-- `avail` flips to `AVAILABLE` when `?Q100` answers, and to `UNAVAILABLE` the moment any command times out or the connection drops. The rest of that poll cycle is skipped.
-- After the transport recovers, the once-per-session values (serial number, software version, model) are automatically re-polled, which also restores `avail=AVAILABLE`.
+- `avail` flips to `AVAILABLE` when `?Q100` answers. The moment any command times out or the connection drops, **every data item** (built-in, user-added, and derived keys alike) is flagged `UNAVAILABLE` — consumers never see hours-old values served as current during an outage — and the rest of that poll cycle is skipped.
+- On recovery the in-progress cycle is aborted and restarted, so `avail=AVAILABLE` (from the re-polled `?Q100`) always precedes the first fresh data. The once-per-session values (serial number, software version, model) are re-polled automatically.
+- **Time base:** Haas Q-codes carry no machine clock, so observations are stamped with the **agent host's clock at receipt**. Keep the agent host NTP-synced (see the starter-kit README's time-synchronization section) — and note this differs from the OPC UA adapter, which passes the controller's own source timestamps through.
 - The transport uses a bounded TCP connect (5 s) and terminator-aware reads (end-of-line / `>` prompt, 150 ms quiet-period fallback), so a dead Moxa can't hang the poll thread and replies return in milliseconds — the practical cycle floor is the machine's own response latency, not fixed sleeps.
 - Transport errors (wrong IP, refused connection, timeouts) surface in the module log — if you see `started polling` and then silence *with* errors, check the address; silence *without* errors means the Haas simply isn't answering Q-codes.
 

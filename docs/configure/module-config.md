@@ -261,7 +261,7 @@ Run it from source (`pip install -r requirements.txt`, then `python main.py`) or
     - { name: feedrate, variable: 3003 }
 ```
 
-`pollOnce: true` fetches a value once per connection session (identity values); `pollEvery: <seconds>` throttles slow-moving counters. On transport failure the module publishes `avail=UNAVAILABLE` and skips the rest of the cycle; after recovery the once-per-session values are re-polled automatically.
+`pollOnce: true` fetches a value once per connection session (identity values); `pollEvery: <seconds>` throttles slow-moving counters. On transport failure the module flags **every** data item `UNAVAILABLE` (not just `avail`) and skips the rest of the cycle; on recovery the poll cycle restarts so availability returns before fresh data, and the once-per-session identity values are re-polled. Observations are stamped with the agent host clock at receipt (Q-codes carry no machine time) — keep the agent host NTP-synced.
 
 ## Configuration objects
 

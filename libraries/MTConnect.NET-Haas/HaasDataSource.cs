@@ -15,12 +15,21 @@ using System.Threading;
 
 namespace MTConnect.Haas
 {
-    /// <summary>Abstract polling loop for a Haas machine. Concrete transports (<see cref="HaasEthernetDataSource"/> for TCP via Moxa) override <see cref="SendCommand"/>. Emits <see cref="ObservationAdded"/> for every value produced by the built-in defaults and the user-added commands / macros. On transport failure the loop emits <c>avail=UNAVAILABLE</c>, skips the rest of the cycle, and re-polls the once-per-session values after recovery.</summary>
+    /// <summary>Abstract polling loop for a Haas machine. Concrete transports (<see cref="HaasEthernetDataSource"/> for TCP via Moxa) override <see cref="SendCommand"/>. Emits <see cref="ObservationAdded"/> for every value produced by the built-in defaults and the user-added commands / macros. On transport failure the loop flags <c>avail</c> and every other key <c>UNAVAILABLE</c> and skips the rest of the cycle; on recovery the cycle restarts so availability returns before fresh data, and the once-per-session values are re-polled.</summary>
     public abstract class HaasDataSource
     {
+        // Keys the parsers derive beyond the command/macro names themselves — used to
+        // flag the whole device stale on transport failure (parity with the OPC UA
+        // module's source-down behaviour). "avail" is handled separately.
+        private static readonly string[] DerivedKeys =
+            { "controller_mode", "zero_ret", "program", "execution", "estop", "system", "partCount" };
+
         private readonly List<HaasCommand> _allCommands;
         private readonly List<HaasMacroVariable> _allMacros;
-        private readonly Dictionary<string, DateTime> _lastPollUtc = new Dictionary<string, DateTime>();
+        private readonly List<string> _allKeys;
+        // Monotonic ticks (Environment.TickCount64) — wall-clock deltas would let an
+        // NTP step silently suppress or double-fire PollEvery throttles.
+        private readonly Dictionary<string, long> _lastPollTicks = new Dictionary<string, long>();
         private readonly HashSet<string> _polledOnceKeys = new HashSet<string>();
 
         private Thread _pollThread;
@@ -45,6 +54,11 @@ namespace MTConnect.Haas
             _allMacros = new List<HaasMacroVariable>(HaasDefaults.MacroVariables);
             if (extraMacros != null) _allMacros.AddRange(extraMacros);
 
+            _allKeys = new List<string>();
+            foreach (var cmd in _allCommands) if (!string.IsNullOrEmpty(cmd.Name)) _allKeys.Add(cmd.Name);
+            foreach (var mv in _allMacros) if (!string.IsNullOrEmpty(mv.Name)) _allKeys.Add(mv.Name);
+            _allKeys.AddRange(DerivedKeys);
+
             PollInterval = pollInterval > 0 ? pollInterval : 1.0;
         }
 
@@ -65,7 +79,7 @@ namespace MTConnect.Haas
             _pollThread?.Join(TimeSpan.FromSeconds(3));
         }
 
-        /// <summary>Override in a transport subclass to send a Q-code command and return the raw ASCII response. Returning null signals a transport failure — the polling loop emits <c>avail=UNAVAILABLE</c> once per outage and skips this cycle's remaining commands.</summary>
+        /// <summary>Override in a transport subclass to send a Q-code command and return the raw ASCII response. Returning null signals a transport failure — the polling loop flags every data item <c>UNAVAILABLE</c> once per outage and skips this cycle's remaining commands.</summary>
         protected abstract string SendCommand(string command);
 
         /// <summary>Called on <see cref="Start"/> before the poll thread starts. Override to open transports, etc.</summary>
@@ -115,7 +129,7 @@ namespace MTConnect.Haas
                 // instead of being lost — and avail stuck UNAVAILABLE — for the whole
                 // session.
                 if (cmd.PollOnce && parsedPrimary) _polledOnceKeys.Add(cmd.Name);
-                _lastPollUtc[cmd.Name] = DateTime.UtcNow;
+                _lastPollTicks[cmd.Name] = Environment.TickCount64;
             }
         }
 
@@ -135,15 +149,18 @@ namespace MTConnect.Haas
                     Emit(mv.Name, value);
                 }
 
-                _lastPollUtc[mv.Name] = DateTime.UtcNow;
+                _lastPollTicks[mv.Name] = Environment.TickCount64;
             }
         }
 
-        // Tracks transport up/down transitions. On the first failure of an outage:
-        // emit avail=UNAVAILABLE (Q100 only reports availability while the link is
-        // up, so nothing else would) and abort the cycle. On the first success after
-        // an outage: clear the PollOnce/throttle state so Q100 re-polls and flips
-        // avail back to AVAILABLE along with the identity values.
+        // Tracks transport up/down transitions; returns false when the current poll
+        // cycle should be aborted. On the first failure of an outage: flag avail and
+        // every other key UNAVAILABLE — otherwise /current keeps serving hours-old
+        // values with live-looking timestamps for the whole outage. On the first
+        // success after an outage: clear the PollOnce/throttle state and abort the
+        // cycle, so the NEXT cycle leads with Q100 and avail returns to AVAILABLE
+        // before any fresh data is emitted (consumers never see live-stamped data
+        // inside an 'unavailable' window).
         private bool NoteTransportResult(bool ok)
         {
             if (!ok)
@@ -152,7 +169,8 @@ namespace MTConnect.Haas
                 {
                     _transportDown = true;
                     Emit("avail", "UNAVAILABLE");
-                    Log(MTConnectLogLevel.Warning, "Transport failure — marking avail UNAVAILABLE and skipping the rest of this cycle");
+                    foreach (var key in _allKeys) Emit(key, "UNAVAILABLE");
+                    Log(MTConnectLogLevel.Warning, "Transport failure — flagging all data items UNAVAILABLE and skipping the rest of this cycle");
                 }
                 return false;
             }
@@ -161,7 +179,8 @@ namespace MTConnect.Haas
             {
                 _transportDown = false;
                 ResetSessionState();
-                Log(MTConnectLogLevel.Information, "Transport recovered — re-polling session values (serial number, model, availability)");
+                Log(MTConnectLogLevel.Information, "Transport recovered — restarting the poll cycle so availability leads the fresh data");
+                return false;
             }
             return true;
         }
@@ -169,8 +188,8 @@ namespace MTConnect.Haas
         private bool SkipDueToRateLimit(string key, int? pollEverySeconds)
         {
             if (!pollEverySeconds.HasValue) return false;
-            if (!_lastPollUtc.TryGetValue(key, out var last)) return false;
-            return (DateTime.UtcNow - last).TotalSeconds < pollEverySeconds.Value;
+            if (!_lastPollTicks.TryGetValue(key, out var lastTicks)) return false;
+            return (Environment.TickCount64 - lastTicks) < pollEverySeconds.Value * 1000L;
         }
 
         private void Emit(string key, string value)
@@ -184,7 +203,7 @@ namespace MTConnect.Haas
         private void ResetSessionState()
         {
             _polledOnceKeys.Clear();
-            _lastPollUtc.Clear();
+            _lastPollTicks.Clear();
         }
 
         /// <summary>Emit a log line to the hosting module.</summary>
