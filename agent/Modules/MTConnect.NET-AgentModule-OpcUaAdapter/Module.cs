@@ -88,10 +88,27 @@ namespace MTConnect
             if (_client != null) _ = _client.Stop();
         }
 
+        private DateTime _lastSkewWarningUtc;
+
         private void OnValueReceived(string dataItemKey, object value, DateTime timestampUtc, bool isGood)
         {
+            WarnOnClockSkew(timestampUtc);
             var payload = isGood ? value : "UNAVAILABLE";
             Agent.AddObservation(_configuration.DeviceKey, dataItemKey, payload, timestampUtc);
+        }
+
+        // Controller and agent clocks are independent time bases; large skew silently
+        // corrupts cross-machine event ordering in downstream historians. Surface it
+        // (rate-limited) so an unsynchronized controller shows up in the module log.
+        private void WarnOnClockSkew(DateTime sourceTimestampUtc)
+        {
+            var nowUtc = DateTime.UtcNow;
+            var skewSeconds = (sourceTimestampUtc - nowUtc).TotalSeconds;
+            if (Math.Abs(skewSeconds) < 5) return;
+            if ((nowUtc - _lastSkewWarningUtc).TotalSeconds < 60) return;
+            _lastSkewWarningUtc = nowUtc;
+            Log(MTConnectLogLevel.Warning,
+                $"OpcUa adapter ({_configuration.DeviceKey}): source timestamps are {skewSeconds:+0.0;-0.0}s from the agent clock — check NTP on the controller and the agent host");
         }
 
         private void FlagDeviceUnavailable(OpcUaProfile profile)

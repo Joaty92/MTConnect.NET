@@ -30,6 +30,7 @@ namespace MTConnect.OpcUa
         private Subscription _subscription;
         private SessionReconnectHandler _reconnectHandler;
         private volatile bool _isRunning;
+        private DateTime _disconnectMarkUtc;
 
         /// <summary>Raised on successful session connect (including after reconnect).</summary>
         public event Action Connected;
@@ -159,9 +160,22 @@ namespace MTConnect.OpcUa
             foreach (var dv in item.DequeueValues())
             {
                 var isGood = StatusCode.IsGood(dv.StatusCode);
-                var ts = dv.SourceTimestamp == DateTime.MinValue ? DateTime.UtcNow : dv.SourceTimestamp.ToUniversalTime();
+                var ts = dv.SourceTimestamp == DateTime.MinValue ? DateTime.UtcNow : NormalizeUtc(dv.SourceTimestamp);
                 var value = CoerceValue(dv.Value, mapping.Kind, isGood);
                 ValueReceived?.Invoke(mapping.DataItemKey, value, ts, isGood);
+            }
+        }
+
+        // OPC UA wire timestamps are UTC, but some decoder paths surface them with
+        // Kind=Unspecified — ToUniversalTime() would then wrongly assume Local and
+        // shift the value by the host's UTC offset. Normalize kind explicitly.
+        private static DateTime NormalizeUtc(DateTime timestamp)
+        {
+            switch (timestamp.Kind)
+            {
+                case DateTimeKind.Utc: return timestamp;
+                case DateTimeKind.Local: return timestamp.ToUniversalTime();
+                default: return DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
             }
         }
 
@@ -191,6 +205,10 @@ namespace MTConnect.OpcUa
             if (!ServiceResult.IsBad(e.Status)) return;
             if (_reconnectHandler != null) return;
 
+            // Mark when the outage began: the module stamps its UNAVAILABLE flags at
+            // this moment, and the reconnect republish clamps against it so per-item
+            // timestamps never run backwards across the outage.
+            _disconnectMarkUtc = DateTime.UtcNow;
             Disconnected?.Invoke();
             _reconnectHandler = new SessionReconnectHandler(_telemetry, true, _config.ReconnectInterval);
             _reconnectHandler.BeginReconnect(_session, _config.ReconnectInterval, OnReconnectComplete);
@@ -244,11 +262,18 @@ namespace MTConnect.OpcUa
                 var results = response.Results;
                 if (results == null || results.Count != mappings.Count) return;
 
+                var republishUtc = DateTime.UtcNow;
                 for (int i = 0; i < mappings.Count; i++)
                 {
                     var dv = results[i];
                     var isGood = StatusCode.IsGood(dv.StatusCode);
-                    var ts = dv.SourceTimestamp == DateTime.MinValue ? DateTime.UtcNow : dv.SourceTimestamp.ToUniversalTime();
+                    var ts = dv.SourceTimestamp == DateTime.MinValue ? republishUtc : NormalizeUtc(dv.SourceTimestamp);
+                    // Values unchanged since before the outage carry pre-outage source
+                    // timestamps — older than the UNAVAILABLE marks stamped at disconnect.
+                    // Re-confirm those at republish time so timestamp-ordered consumers
+                    // don't discard the recovery value as stale; values that changed
+                    // mid-outage keep their (newer-than-disconnect) source time.
+                    if (ts <= _disconnectMarkUtc) ts = republishUtc;
                     ValueReceived?.Invoke(mappings[i].DataItemKey, CoerceValue(dv.Value, mappings[i].Kind, isGood), ts, isGood);
                 }
             }
