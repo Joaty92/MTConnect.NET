@@ -1,4 +1,5 @@
 // Copyright (c) 2023 TrakHound Inc. + 2025 fork contributors, All Rights Reserved.
+// Licensed to you under the MIT license; see LICENSE.md in the repository root.
 // Original TrakHound MTConnect.NET-Haas (MIT). Fork rewrites the Module to
 // match the current MTConnect.NET agent-module API (OnStartAfterLoad(bool))
 // and to wire the YAML-driven HaasDataSource into the agent buffer via

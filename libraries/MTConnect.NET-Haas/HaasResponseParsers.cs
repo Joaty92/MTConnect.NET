@@ -1,4 +1,5 @@
-// Copyright (c) 2025, All Rights Reserved.
+// Copyright (c) 2023 TrakHound Inc. + 2025 fork contributors, All Rights Reserved.
+// Licensed to you under the MIT license; see LICENSE.md in the repository root.
 // Regex parsing patterns adapted from the original TrakHound MTConnect.NET-Haas
 // (MIT), extracted into a dedicated static class so the polling loop stays
 // declarative.

@@ -1,4 +1,5 @@
 // Copyright (c) 2023 TrakHound Inc. + 2025 fork contributors, All Rights Reserved.
+// Licensed to you under the MIT license; see LICENSE.md in the repository root.
 // Original TrakHound MTConnect.NET-Haas (MIT).
 
 namespace MTConnect.Haas

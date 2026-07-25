@@ -1,4 +1,5 @@
-// Copyright (c) 2025, All Rights Reserved.
+// Copyright (c) 2025 MTConnect.NET fork contributors, All Rights Reserved.
+// Licensed to you under the MIT license; see LICENSE.md in the repository root.
 
 namespace MTConnect.Haas
 {
