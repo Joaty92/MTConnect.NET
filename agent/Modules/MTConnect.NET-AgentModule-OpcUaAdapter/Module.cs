@@ -5,7 +5,9 @@ using MTConnect.Configurations;
 using MTConnect.Devices;
 using MTConnect.Devices.DataItems;
 using MTConnect.Formatters;
+using MTConnect.Input;
 using MTConnect.Logging;
+using MTConnect.Observations;
 using MTConnect.OpcUa;
 using System;
 using System.Collections.Generic;
@@ -94,7 +96,22 @@ namespace MTConnect
         {
             WarnOnClockSkew(timestampUtc);
             var payload = isGood ? value : "UNAVAILABLE";
-            Agent.AddObservation(_configuration.DeviceKey, dataItemKey, payload, timestampUtc);
+            PushObservation(dataItemKey, payload, timestampUtc);
+        }
+
+        // Forward one observation to the agent, applying this adapter's optional per-adapter
+        // IgnoreTimestamps override: null inherits the agent-wide setting; true re-stamps with
+        // the agent clock (dropping the controller's source timestamp); false keeps source time.
+        private void PushObservation(string dataItemKey, object value, DateTime timestampUtc)
+        {
+            var input = new ObservationInput
+            {
+                DeviceKey = _configuration.DeviceKey,
+                DataItemKey = dataItemKey,
+                Values = new List<ObservationValue> { new ObservationValue(ValueKeys.Result, value) },
+                Timestamp = timestampUtc.ToUnixTime()
+            };
+            Agent.AddObservation(input, ignoreTimestamp: _configuration.IgnoreTimestamps);
         }
 
         // Controller and agent clocks are independent time bases; large skew silently
@@ -120,7 +137,7 @@ namespace MTConnect
             foreach (var mapping in profile.Mappings)
             {
                 if (string.IsNullOrWhiteSpace(mapping.DataItemKey)) continue;
-                Agent.AddObservation(_configuration.DeviceKey, mapping.DataItemKey, (object)"UNAVAILABLE", nowUtc);
+                PushObservation(mapping.DataItemKey, "UNAVAILABLE", nowUtc);
             }
         }
 

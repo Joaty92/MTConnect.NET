@@ -10,5 +10,8 @@ namespace MTConnect.Configurations
 
         /// <summary>Name of a profile file (without extension) under the module's <c>profiles/</c> folder; selects the NodeId → DataItem mapping for this server.</summary>
         public string Profile { get; set; }
+
+        /// <summary>Per-adapter override for the agent-wide <c>ignoreTimestamps</c> setting. <c>null</c> (default) inherits the agent-wide value; <c>true</c> re-stamps this device's observations with the agent clock (dropping the controller's OPC UA source timestamps); <c>false</c> keeps this device's source timestamps even when the agent-wide flag is on.</summary>
+        public bool? IgnoreTimestamps { get; set; }
     }
 }

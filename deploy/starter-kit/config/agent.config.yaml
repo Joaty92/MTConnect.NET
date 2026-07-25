@@ -88,6 +88,9 @@ modules:
 #       # password: hunter2         # UTF-8 plaintext (encrypted on the wire only with Basic256Sha256)
 #     samplingInterval: 250
 #     publishingInterval: 1000
+#     # ignoreTimestamps: true      # per-adapter override: re-stamp THIS controller with the agent
+#     #                             # clock (drops its OPC UA source timestamps). Omit = inherit the
+#     #                             # agent-wide setting below; false = keep source time regardless.
 #     profile: sinumerik_840d       # references profiles/sinumerik_840d.yaml
 #     # Basic256Sha256: the module self-generates a client cert under /app/pki/own on first run —
 #     # move it from the server's rejected/ store to trusted/ once. Mount ./pki:/app/pki (see
@@ -105,6 +108,7 @@ modules:
 #     heartbeat: 5000
 #     reconnectInterval: 600
 #     connectionTimeout: 1000
+#     # ignoreTimestamps: true       # per-adapter override (SHDR) - stamp with the agent clock
 
 # ============================================================================
 #  Haas Ethernet adapter — polls a Haas CNC over TCP (usually via Moxa NPort)
@@ -129,6 +133,13 @@ modules:
 
 observationBufferSize: 150000
 assetBufferSize: 1000
+
+# Overwrite EVERY incoming observation's timestamp with the agent's own clock. Agent-wide:
+# applies to all adapters (SHDR, OPC UA, Haas, ...). Most useful for OPC UA, which otherwise
+# passes the controller's SOURCE timestamps through - turn on if a controller's clock can't be
+# NTP-disciplined. Haas already stamps with the agent clock (no-op). Per-adapter overrides
+# above: OPC UA is three-way (unset=inherit, true=force on, false=force off); SHDR can force on.
+# ignoreTimestamps: true
 
 # durable: true
 # durableBufferPath: /app/buffer

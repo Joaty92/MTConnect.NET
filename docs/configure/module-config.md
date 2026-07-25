@@ -235,9 +235,10 @@ All devices share one edge-node identity (`groupId` + `nodeId`). DDATA is batche
     publishingInterval: 1000       # notification push interval (ms).
     reconnectInterval: 5000        # reconnect delay after keep-alive failure (ms).
     sessionTimeout: 60000          # requested session timeout (ms).
+    # ignoreTimestamps: false      # per-adapter override of the agent-wide ignoreTimestamps.
 ```
 
-One block per machine. On session loss every mapped data item flips to `UNAVAILABLE`; after reconnect all mapped nodes are re-read so unchanged values recover immediately instead of waiting for their next change.
+One block per machine. On session loss every mapped data item flips to `UNAVAILABLE`; after reconnect all mapped nodes are re-read so unchanged values recover immediately instead of waiting for their next change. The optional `ignoreTimestamps` key overrides the agent-wide setting per adapter - unset inherits it, `true` re-stamps this device with the agent clock (dropping the controller's source timestamps), `false` keeps source time even when the agent-wide flag is on.
 
 ### Authoring profiles: the OPC UA profile GUI
 

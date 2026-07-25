@@ -67,6 +67,7 @@ Add an entry under `modules:` in `agent.config.yaml`:
     publishingInterval: 1000            # ms — how often the server pushes notifications
     reconnectInterval: 5000             # ms — delay between reconnect attempts after keep-alive failure
     sessionTimeout: 60000               # ms — session timeout requested from server
+    # ignoreTimestamps: false           # per-adapter override of the agent-wide setting (see field reference)
     profile: sinumerik_840d             # loads profiles/sinumerik_840d.yaml
 ```
 
@@ -86,6 +87,7 @@ Repeat the block (with a different `deviceKey`, `endpoint`, and `profile`) once 
 | `publishingInterval` | no       | `1000`       | OPC UA push interval to this client, milliseconds.                    |
 | `reconnectInterval`  | no       | `5000`       | Delay before reconnect after the keep-alive declares the link dead.   |
 | `sessionTimeout`     | no       | `60000`      | Session timeout requested from the server.                            |
+| `ignoreTimestamps`   | no       | *(inherit)*  | Per-adapter override of the agent-wide `ignoreTimestamps`. Unset inherits it; `true` re-stamps this device with the agent clock (drops the controller's OPC UA source timestamps); `false` keeps source time even when the agent-wide flag is on. |
 | `profile`            | yes      | —            | Name (without `.yaml`) of a file in this module's `profiles/` folder. |
 
 ## Profile file format
