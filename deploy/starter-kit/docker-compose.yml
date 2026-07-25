@@ -26,5 +26,9 @@ services:
       - ./devices:/app/devices
       - ./profiles:/app/profiles
       - ./logs:/app/logs
-      # Uncomment when using TLS certs for the sparkplug-relay (referenced as certs/<file>):
+      # Uncomment when using TLS certs for the mqtt-relay OR sparkplug-relay
+      # (config references them as certs/<file>; put the files in config/certs/):
       # - ./config/certs:/app/certs
+      # Uncomment for OPC UA securityPolicy: Basic256Sha256 — persists the self-signed client
+      # cert (pki/own) so the server only trusts it once, not after every container restart:
+      # - ./pki:/app/pki

@@ -34,13 +34,24 @@ modules:
 
 # - mqtt-relay: # Entity structure — one message per observation
 #     server: host.docker.internal
-#     port: 1883
+#     port: 1883                    # use the broker's TLS port (e.g. 8883) when tls is set below
 #     durableRelay: true
 #     currentInterval: 5000
 #     sampleInterval: 500
 #     documentFormat: JSON
 #     topicPrefix: MTConnect/Entity
 #     topicStructure: Entity
+#     # --- Broker username/password (optional; plaintext on the wire unless tls is enabled) ---
+#     # username: mtconnect
+#     # password: hunter2
+#     # --- TLS (optional; MQTT uses a NESTED tls: pem: block — different keys than the SPB relay) ---
+#     # tls:
+#     #   pem:
+#     #     certificateAuthority: certs/broker-ca.crt   # pin the broker CA (server-auth TLS)
+#     #     certificatePath: certs/agent.crt            # client cert (add cert + key
+#     #     privateKeyPath:  certs/agent.key            # only for mutual TLS)
+#     #     privateKeyPassword: changeit                # omit if the key isn't encrypted
+#     # (drop cert files in config/certs/ and uncomment the certs volume in docker-compose.yml)
 
 # ============================================================================
 #  Sparkplug B relay — forwards observations as SPB DBIRTH/DDATA/DDEATH
@@ -52,6 +63,9 @@ modules:
 #     port: 1883
 #     groupId: Factory              # top-level Sparkplug Group namespace
 #     nodeId: Agent1                # Edge Node ID (this agent's identity)
+#     # --- Broker username/password (optional; plaintext on the wire unless useTls) ---
+#     # username: mtconnect
+#     # password: hunter2
 #     # --- TLS (see agent/Modules/MTConnect.NET-AgentModule-SparkplugBRelay/ReadMe.md) ---
 #     # useTls: true                          # pair with the broker's TLS port (8883)
 #     # caCertificateFile: certs/broker-ca.crt   # pin the broker CA (PEM or DER)
@@ -64,15 +78,20 @@ modules:
 #  See profiles/ folder for NodeId mapping files (.yaml + optional .template.xml).
 # ============================================================================
 
-# - opcua-adapter: # example: Sinumerik 840D, anonymous, no TLS
+# - opcua-adapter: # example: Sinumerik 840D, anonymous, unencrypted
 #     deviceKey: Sinu-001
 #     endpoint: opc.tcp://192.168.1.50:4840
-#     securityPolicy: None
+#     securityPolicy: None          # "None" (trusted/segmented networks only) or "Basic256Sha256" (encrypted)
 #     identity:
-#       mode: anonymous
+#       mode: anonymous             # or "username" below; x509 client identity is not supported in v1
+#       # username: mtconnect       # required when mode: username
+#       # password: hunter2         # UTF-8 plaintext (encrypted on the wire only with Basic256Sha256)
 #     samplingInterval: 250
 #     publishingInterval: 1000
 #     profile: sinumerik_840d       # references profiles/sinumerik_840d.yaml
+#     # Basic256Sha256: the module self-generates a client cert under /app/pki/own on first run —
+#     # move it from the server's rejected/ store to trusted/ once. Mount ./pki:/app/pki (see
+#     # docker-compose.yml) so it persists across restarts and you only trust it a single time.
 
 # ============================================================================
 #  SHDR adapter — TCP socket connection to a TrakHound SHDR adapter on the HMI
