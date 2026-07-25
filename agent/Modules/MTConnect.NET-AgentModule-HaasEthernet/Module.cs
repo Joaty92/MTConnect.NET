@@ -6,8 +6,11 @@
 
 using MTConnect.Agents;
 using MTConnect.Configurations;
+using MTConnect.Devices;
 using MTConnect.Haas;
+using MTConnect.Input;
 using MTConnect.Logging;
+using MTConnect.Observations;
 using System;
 
 namespace MTConnect
@@ -60,7 +63,23 @@ namespace MTConnect
 
         private void OnObservation(object sender, (string Key, string Value) evt)
         {
-            Agent.AddObservation(_configuration.DeviceKey, evt.Key, (object)evt.Value, DateTime.UtcNow);
+            var timestamp = DateTime.UtcNow;
+
+            // CONDITION data items keep their state under ValueKeys.Level, but the scalar
+            // AddObservation overload writes ValueKeys.Result — so conditions (the parsers
+            // emit NORMAL/FAULT for "system" and "zero_ret") stayed UNAVAILABLE even while
+            // the machine was in alarm. Route them through a fault-state input instead.
+            var dataItem = Agent.GetDataItem(_configuration.DeviceKey, evt.Key);
+            if (dataItem != null && dataItem.Category == DataItemCategory.CONDITION)
+            {
+                var level = evt.Value.ConvertEnum<ConditionLevel>();
+                Agent.AddObservation(
+                    _configuration.DeviceKey,
+                    new ConditionFaultStateObservationInput(evt.Key, level, timestamp));
+                return;
+            }
+
+            Agent.AddObservation(_configuration.DeviceKey, evt.Key, (object)evt.Value, timestamp);
         }
 
         private void OnDataSourceLog(object sender, MTConnectLogLevel level, string message, string logId)
