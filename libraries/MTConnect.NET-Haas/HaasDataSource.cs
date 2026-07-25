@@ -94,8 +94,11 @@ namespace MTConnect.Haas
             {
                 try
                 {
-                    PollCommands();
-                    PollMacroVariables();
+                    // PollCommands returns false when the cycle was aborted — transport
+                    // down, or the restart that follows recovery. The macro pass must be
+                    // skipped in both cases: on recovery it would otherwise emit fresh
+                    // macro values before Q100 has flipped avail back to AVAILABLE.
+                    if (PollCommands()) PollMacroVariables();
                 }
                 catch (Exception ex)
                 {
@@ -106,16 +109,18 @@ namespace MTConnect.Haas
             }
         }
 
-        private void PollCommands()
+        // Returns false when the remaining cycle (including the macro pass) must be
+        // abandoned: the transport went down, went up again, or the source was stopped.
+        private bool PollCommands()
         {
             foreach (var cmd in _allCommands)
             {
-                if (!_running) return;
+                if (!_running) return false;
                 if (SkipDueToRateLimit(cmd.Name, cmd.PollEvery)) continue;
                 if (cmd.PollOnce && _polledOnceKeys.Contains(cmd.Name)) continue;
 
                 var response = SendCommand(cmd.Command);
-                if (!NoteTransportResult(response != null)) return;
+                if (!NoteTransportResult(response != null)) return false;
 
                 var parsedPrimary = false;
                 foreach (var (key, value) in HaasResponseParsers.Parse(cmd, response))
@@ -131,6 +136,8 @@ namespace MTConnect.Haas
                 if (cmd.PollOnce && parsedPrimary) _polledOnceKeys.Add(cmd.Name);
                 _lastPollTicks[cmd.Name] = Environment.TickCount64;
             }
+
+            return true;
         }
 
         private void PollMacroVariables()
