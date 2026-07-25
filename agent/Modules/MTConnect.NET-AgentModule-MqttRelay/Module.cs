@@ -14,6 +14,7 @@ using MTConnect.Observations;
 using MTConnect.Observations.Events;
 using MTConnect.Observations.Output;
 using MTConnect.Streams.Output;
+using MTConnect.Tls;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -261,71 +262,88 @@ namespace MTConnect
                             clientOptionsBuilder.WithClientId(_configuration.ClientId);
                         }
 
-                        // Set TLS Certificate
-                        if (_configuration.Tls != null)
+                        // TLS and client authentication are independent axes: TLS protects
+                        // the channel and authenticates the broker, while credentials and a
+                        // client certificate are two (combinable) ways to authenticate this
+                        // client. The previous flow conflated them - it gated all TLS on a
+                        // client certificate loading, only honoured UseTls inside the
+                        // credentials branch, and then rebuilt the TLS options there, which
+                        // discarded the client certificate and the pinned CA whenever
+                        // credentials were also configured.
+                        var tlsConfig = _configuration.Tls;
+                        CertificateLoadResult clientCertificate = default;
+                        CertificateLoadResult certificateAuthority = default;
+                        if (tlsConfig != null)
                         {
-                            var certificateResults = _configuration.Tls.GetCertificate();
-                            if (certificateResults.Success && certificateResults.Certificate != null)
-                            {
-                                var certificateAuthorityResults = _configuration.Tls.GetCertificateAuthority();
-
-                                var certificates = new List<X509Certificate2>();
-                                if (certificateAuthorityResults.Certificate != null && _configuration.Tls.OmitCAValidation == false)
-                                {
-                                    certificates.Add(certificateAuthorityResults.Certificate);
-                                }
-                                certificates.Add(certificateResults.Certificate);
-
-                                var tlsOptionsBuilder = new MqttClientTlsOptionsBuilder();
-
-                                // Set Client Certificate
-                                tlsOptionsBuilder.WithClientCertificates(certificates);
-
-                                // Set VerifyClientCertificate option
-                                tlsOptionsBuilder.WithAllowUntrustedCertificates(!_configuration.Tls.VerifyClientCertificate);
-
-#if NET5_0_OR_GREATER
-                                // Setup CA Certificate
-                                if (certificateAuthorityResults.Certificate != null)
-                                {
-                                    tlsOptionsBuilder.WithCertificateValidationHandler((certContext) =>
-                                    {
-                                        var chain = new X509Chain();
-                                        chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-                                        chain.ChainPolicy.RevocationFlag = X509RevocationFlag.ExcludeRoot;
-                                        chain.ChainPolicy.VerificationFlags = X509VerificationFlags.NoFlag;
-                                        chain.ChainPolicy.VerificationTime = DateTime.Now;
-                                        chain.ChainPolicy.UrlRetrievalTimeout = new TimeSpan(0, 0, 0);
-                                        chain.ChainPolicy.CustomTrustStore.Add(certificateAuthorityResults.Certificate);
-                                        chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
-
-                                        // convert provided X509Certificate to X509Certificate2
-                                        var x5092 = new X509Certificate2(certContext.Certificate);
-
-                                        return chain.Build(x5092);
-                                    });
-                                }
-#endif
-
-                                clientOptionsBuilder.WithTlsOptions(tlsOptionsBuilder.Build());
-                            }
+                            clientCertificate = tlsConfig.GetCertificate();
+                            certificateAuthority = tlsConfig.GetCertificateAuthority();
                         }
 
-                        // Add Credentials
+                        var hasClientCertificate = clientCertificate.Success && clientCertificate.Certificate != null;
+                        var pinnedCertificateAuthority = tlsConfig != null
+                            && tlsConfig.OmitCAValidation == false
+                            && certificateAuthority.Certificate != null;
+
+                        // Configuring any TLS material implies TLS; UseTls alone also enables
+                        // it (validating the broker against the OS trust store).
+                        if (_configuration.UseTls || tlsConfig != null)
+                        {
+                            var tlsOptionsBuilder = new MqttClientTlsOptionsBuilder();
+                            tlsOptionsBuilder.WithSslProtocols(System.Security.Authentication.SslProtocols.Tls12);
+
+                            // A client certificate is optional; supplying one enables mutual TLS.
+                            if (hasClientCertificate)
+                            {
+                                var certificates = new List<X509Certificate2>();
+                                if (pinnedCertificateAuthority) certificates.Add(certificateAuthority.Certificate);
+                                certificates.Add(clientCertificate.Certificate);
+                                tlsOptionsBuilder.WithClientCertificates(certificates);
+
+                                // Scoped to the client-certificate case on purpose:
+                                // VerifyClientCertificate defaults to false, so applying this
+                                // unconditionally would allow untrusted certificates and defeat
+                                // the pinned-CA validation below.
+                                tlsOptionsBuilder.WithAllowUntrustedCertificates(!tlsConfig.VerifyClientCertificate);
+                            }
+
+#if NET5_0_OR_GREATER
+                            // Pinning the broker's CA is independent of presenting a client
+                            // certificate: it is how server-authenticated ("one-way") TLS is
+                            // configured against a private CA.
+                            if (pinnedCertificateAuthority)
+                            {
+                                var authorityCertificate = certificateAuthority.Certificate;
+                                tlsOptionsBuilder.WithCertificateValidationHandler((certContext) =>
+                                {
+                                    var chain = new X509Chain();
+                                    chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+                                    chain.ChainPolicy.RevocationFlag = X509RevocationFlag.ExcludeRoot;
+                                    chain.ChainPolicy.VerificationFlags = X509VerificationFlags.NoFlag;
+                                    chain.ChainPolicy.VerificationTime = DateTime.Now;
+                                    chain.ChainPolicy.UrlRetrievalTimeout = new TimeSpan(0, 0, 0);
+                                    chain.ChainPolicy.CustomTrustStore.Add(authorityCertificate);
+                                    chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+
+                                    // convert provided X509Certificate to X509Certificate2
+                                    var x5092 = new X509Certificate2(certContext.Certificate);
+
+                                    return chain.Build(x5092);
+                                });
+                            }
+#endif
+
+                            clientOptionsBuilder.WithTlsOptions(tlsOptionsBuilder.Build());
+                        }
+
+                        // Credentials are orthogonal to TLS - never rebuild the TLS options here.
                         if (!string.IsNullOrEmpty(_configuration.Username) && !string.IsNullOrEmpty(_configuration.Password))
                         {
-                            if (_configuration.UseTls)
+                            if (!_configuration.UseTls && tlsConfig == null)
                             {
-                                var tlsOptionsBuilder = new MqttClientTlsOptionsBuilder();
-                                tlsOptionsBuilder.WithSslProtocols(System.Security.Authentication.SslProtocols.Tls12);
-                                clientOptionsBuilder.WithTlsOptions(tlsOptionsBuilder.Build());
+                                Log(MTConnectLogLevel.Warning, "MQTT Relay : username/password will be sent in plaintext because no TLS is configured. Acceptable only when the broker is reachable solely over a trusted local path (for example another container on the same private Docker network); set useTls: true and use the broker's TLS port otherwise.");
+                            }
 
-                                clientOptionsBuilder.WithCredentials(_configuration.Username, _configuration.Password);
-                            }
-                            else
-                            {
-                                clientOptionsBuilder.WithCredentials(_configuration.Username, _configuration.Password);
-                            }
+                            clientOptionsBuilder.WithCredentials(_configuration.Username, _configuration.Password);
                         }
 
                         // Build MQTT Client Options

@@ -44,7 +44,10 @@ modules:
 #     # --- Broker username/password (optional; plaintext on the wire unless tls is enabled) ---
 #     # username: mtconnect
 #     # password: hunter2
-#     # --- TLS (optional; MQTT uses a NESTED tls: pem: block — different keys than the SPB relay) ---
+#     # --- TLS (optional). Any tls: block turns TLS on; useTls: true alone also works
+#     #     (broker validated against the OS trust store). Credentials and certificates
+#     #     are independent and may be combined. NOTE the shape differs from the SPB
+#     #     relay above: MQTT nests under tls: pem: and wants a separate .crt + .key. ---
 #     # tls:
 #     #   pem:
 #     #     certificateAuthority: certs/broker-ca.crt   # pin the broker CA (server-auth TLS)

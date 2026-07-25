@@ -51,11 +51,11 @@ The 5-minute version: build the image with the root [Dockerfile](Dockerfile), `d
 
 ```
 git fetch upstream
-git checkout master && git merge --ff-only upstream/master
-git checkout <feature-branch> && git merge master
+git checkout master && git merge --ff-only upstream/master   # master mirrors upstream
+git checkout fork/main && git rebase master                  # replay fork work on top
 ```
 
-Fork content lives in fork-owned files/folders wherever possible, so upstream merges stay conflict-free. The deliberate exceptions are the short fork-note in [README.md](README.md), the fork-module sections in [docs/configure/module-config.md](docs/configure/module-config.md), and two targeted edits to the upstream `MTConnect.NET-SHDR` library: the `IgnoreHeartbeatOnChange` adapter setting in `ShdrClient.cs`, and a case-insensitive condition-level parse in `ShdrFaultState.cs` (`Enum.Parse(…, ignoreCase: true)`). Without the latter, an adapter that sends a lower-case level such as `fault` instead of `FAULT` hits a case-sensitive `Enum.Parse`, the surrounding `catch` swallows the exception, `FromLine` returns null, and the condition line is dropped **silently** — the condition never leaves `UNAVAILABLE`. Both are candidates to upstream as PRs.
+Fork content lives in fork-owned files/folders wherever possible, so upstream merges stay conflict-free. The deliberate exceptions are the short fork-note in [README.md](README.md), the fork-module sections in [docs/configure/module-config.md](docs/configure/module-config.md), and two targeted edits to the upstream `MTConnect.NET-SHDR` library: the `IgnoreHeartbeatOnChange` adapter setting in `ShdrClient.cs`, and a case-insensitive condition-level parse in `ShdrFaultState.cs` (`Enum.Parse(…, ignoreCase: true)`). Without the latter, an adapter that sends a lower-case level such as `fault` instead of `FAULT` hits a case-sensitive `Enum.Parse`, the surrounding `catch` swallows the exception, `FromLine` returns null, and the condition line is dropped **silently** — the condition never leaves `UNAVAILABLE`. A third upstream exception is the `mqtt-relay` module (`agent/Modules/MTConnect.NET-AgentModule-MqttRelay/Module.cs`), where TLS and client authentication were entangled: all TLS was gated on a **client** certificate loading, so a CA-only (server-authenticated) block silently connected in plaintext; `useTls` was only read inside the credentials branch, making it a no-op on its own; and that branch rebuilt the TLS options, discarding the client certificate and pinned CA whenever credentials were also set. The fork decouples the two axes. The same pattern still exists upstream in the MqttAdapter module and the MTConnect.NET-MQTT clients, which this fork does not use. All of these are candidates to upstream as PRs.
 
 ## Contributor guard rails
 
