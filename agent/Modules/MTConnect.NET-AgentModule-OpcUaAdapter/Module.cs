@@ -77,6 +77,7 @@ namespace MTConnect
                 FlagDeviceUnavailable(profile);
             };
             _client.ConnectionError += ex => Log(MTConnectLogLevel.Warning, $"OpcUa error ({_configuration.DeviceKey}): {ex.Message}");
+            _client.Warning += message => Log(MTConnectLogLevel.Warning, $"OpcUa adapter ({_configuration.DeviceKey}): {message}");
             _client.ValueReceived += OnValueReceived;
 
             _ = _client.Start().ContinueWith(
@@ -95,7 +96,10 @@ namespace MTConnect
         private void OnValueReceived(string dataItemKey, object value, DateTime timestampUtc, bool isGood)
         {
             WarnOnClockSkew(timestampUtc);
-            var payload = isGood ? value : "UNAVAILABLE";
+            // CoerceValue returns null for a Good status carrying a null Variant; passing
+            // that through published an empty-string observation that looked like real
+            // data. Treat "no value" the same as bad quality.
+            var payload = isGood && value != null ? value : "UNAVAILABLE";
             PushObservation(dataItemKey, payload, timestampUtc);
         }
 
@@ -199,8 +203,14 @@ namespace MTConnect
                     // Name stays equal to the YAML dataItemKey so AddObservation routes correctly.
                     Id = $"{deviceKey}_{mapping.DataItemKey}",
                     Name = mapping.DataItemKey,
-                    Category = mapping.Kind == OpcUaValueKind.Sample ? DataItemCategory.SAMPLE : DataItemCategory.EVENT,
-                    Type = "VARIABLE",
+                    // VARIABLE is an EVENT-only type (VariableDataItem.CategoryId), so
+                    // declaring Sample mappings as SAMPLE/VARIABLE produced a device model
+                    // that fails spec validation. A NodeId carries no MTConnect type or
+                    // units to infer a real SAMPLE type from, so this last-resort fallback
+                    // declares everything EVENT/VARIABLE; author devices/<key>.xml or a
+                    // profile .template.xml (the profile GUI emits one) for proper typing.
+                    Category = VariableDataItem.CategoryId,
+                    Type = VariableDataItem.TypeId,
                 });
             }
             return new Device

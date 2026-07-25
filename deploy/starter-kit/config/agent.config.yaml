@@ -82,6 +82,8 @@ modules:
 #     deviceKey: Sinu-001
 #     endpoint: opc.tcp://192.168.1.50:4840
 #     securityPolicy: None          # "None" (trusted/segmented networks only) or "Basic256Sha256" (encrypted)
+#     # acceptUntrustedServerCertificate: false  # default true = channel encrypted but server NOT
+#     #                             # authenticated; false requires the server cert in pki/trusted
 #     identity:
 #       mode: anonymous             # or "username" below; x509 client identity is not supported in v1
 #       # username: mtconnect       # required when mode: username

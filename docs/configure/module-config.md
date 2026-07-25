@@ -229,6 +229,7 @@ All devices share one edge-node identity (`groupId` + `nodeId`). DDATA is batche
     endpoint: opc.tcp://192.168.1.50:4840
     profile: sinumerik_840d        # references profiles/sinumerik_840d.yaml.
     securityPolicy: None           # None | Basic256Sha256.
+    # acceptUntrustedServerCertificate: false   # require the server cert in pki/trusted.
     identity:
       mode: anonymous              # anonymous | username.
     samplingInterval: 250          # server-side sampling interval (ms).
@@ -238,7 +239,7 @@ All devices share one edge-node identity (`groupId` + `nodeId`). DDATA is batche
     # ignoreTimestamps: false      # per-adapter override of the agent-wide ignoreTimestamps.
 ```
 
-One block per machine. On session loss every mapped data item flips to `UNAVAILABLE`; after reconnect all mapped nodes are re-read so unchanged values recover immediately instead of waiting for their next change. The optional `ignoreTimestamps` key overrides the agent-wide setting per adapter - unset inherits it, `true` re-stamps this device with the agent clock (dropping the controller's source timestamps), `false` keeps source time even when the agent-wide flag is on.
+One block per machine. On session loss every mapped data item flips to `UNAVAILABLE`; after reconnect all mapped nodes are re-read so unchanged values recover immediately instead of waiting for their next change. The optional `ignoreTimestamps` key overrides the agent-wide setting per adapter - unset inherits it, `true` re-stamps this device with the agent clock (dropping the controller's source timestamps), `false` keeps source time even when the agent-wide flag is on. By default any server certificate is accepted (`acceptUntrustedServerCertificate: true`) - the channel is encrypted but the server is not authenticated; set it to `false` and place the server certificate in the agent's `pki/trusted` store to close that gap. Startup fails fast if a security policy is configured but the server offers no secured endpoint.
 
 ### Authoring profiles: the OPC UA profile GUI
 

@@ -21,7 +21,7 @@ On `OnStartAfterLoad` the module decides where the agent's device model for `dev
 
 1. **User-authored `devices/<deviceKey>.xml`** — if the agent's startup device loader already produced a device matching `deviceKey`, the module uses it as-is and only attaches observations. Full control, used for the SHDR-style hand-tuned device model.
 2. **Shipped `profiles/<name>.template.xml` template** — if the profile bundle includes a `.template.xml`, the module parses it, rewrites the `id`/`uuid`/`name` to the configured `deviceKey`, and pushes it via `Agent.AddDevice(...)`. Used for well-documented controllers where the structural template is known up front (Sinumerik 840D is the shipped example).
-3. **Auto-generated flat device** — if neither of the above applies, the module builds a flat `Device` with one `DataItem` per YAML mapping (`category` from `kind:`, `type="VARIABLE"`). Valid MTConnect document, no component hierarchy, no units. Used for one-off / S7 / generic-PLC scenarios where the goal is just to forward values.
+3. **Auto-generated flat device** — if neither of the above applies, the module builds a flat `Device` with one `DataItem` per YAML mapping, every one declared `category="EVENT" type="VARIABLE"`. `VARIABLE` is an EVENT-only type and a NodeId carries nothing to infer a real SAMPLE type or units from, so this tier deliberately trades typing for a spec-valid document: no component hierarchy, no units, and `kind: sample` mappings arrive as EVENTs. Used for one-off / S7 / generic-PLC scenarios where the goal is just to forward values — author a template for proper typing.
 
 Which tier ran is logged at `Information` on module startup — look for `using existing device from devices/ folder`, `created device from template …`, or `created flat device from profile mappings (N data items)`.
 
@@ -59,6 +59,7 @@ Add an entry under `modules:` in `agent.config.yaml`:
     deviceKey: Sinu-001                 # matches devices/Sinu-001.xml
     endpoint: opc.tcp://192.168.1.50:4840
     securityPolicy: Basic256Sha256      # or "None" for sim servers
+    # acceptUntrustedServerCertificate: false   # require the server cert in pki/trusted
     identity:
       mode: username                    # or "anonymous"
       username: mtconnect
@@ -79,7 +80,8 @@ Repeat the block (with a different `deviceKey`, `endpoint`, and `profile`) once 
 | -------------------- | -------- | ------------ | -------------------------------------------------------------------- |
 | `deviceKey`          | yes      | —            | Must match a device declared in `devices/<key>.xml`.                  |
 | `endpoint`           | yes      | —            | Full `opc.tcp://host:port[/path]` URL.                                |
-| `securityPolicy`     | no       | `None`       | `None` or `Basic256Sha256`. Use `None` only on trusted networks.      |
+| `securityPolicy`     | no       | `None`       | `None` or `Basic256Sha256`. Use `None` only on trusted networks. Startup fails if the server offers no secured endpoint while a policy is configured. |
+| `acceptUntrustedServerCertificate` | no | `true` | Accepts any server certificate. Encrypts the channel but does **not** authenticate the server. Set `false` to require the server certificate in `pki/trusted`. |
 | `identity.mode`      | no       | `anonymous`  | `anonymous` or `username`.                                            |
 | `identity.username`  | no       | —            | Required when `mode: username`.                                       |
 | `identity.password`  | no       | —            | Required when `mode: username`. UTF-8 plain text.                     |
@@ -141,7 +143,11 @@ The module relies on the SDK's `SessionReconnectHandler`:
 
 `securityPolicy: Basic256Sha256` requires the client and server to trust each other's certificates. The module generates a self-signed client certificate on first run and stores it under `pki/own/` next to the agent binary. The first time you connect to a new server you will need to **manually accept the client certificate on the server side** (typically by moving it from the server's `rejected/` store to `trusted/`).
 
-Untrusted server certificates are auto-accepted on the client side. This is a deliberate trade-off for ease of deployment — a hardened deployment should remove the `BadCertificateUntrusted → e.Accept = true` handler in `OpcUaSubscriptionClient.BuildApplicationConfiguration()` and manage the trust list explicitly.
+Untrusted **server** certificates are auto-accepted by default (`acceptUntrustedServerCertificate: true`). Understand what that means: the channel is encrypted, but the server is **not authenticated** - anything answering on the configured `endpoint` is trusted, so with `identity.mode: username` the controller credentials would be presented to an impostor endpoint. The module logs a warning at startup whenever this is active alongside a security policy.
+
+For a hardened deployment set `acceptUntrustedServerCertificate: false` and copy the server's certificate into the agent's `pki/trusted/` store (mount `./pki:/app/pki` so it survives container restarts). The session then fails to open unless the server presents that certificate.
+
+Because `securityPolicy` selects the server's *most secure* endpoint rather than the exact named policy, the module verifies what was actually negotiated: it fails fast if the server offers no secured endpoint, and logs a warning if the negotiated policy differs from the configured one.
 
 ## Troubleshooting
 

@@ -11,6 +11,9 @@ namespace MTConnect.Configurations
         /// <summary>Security policy name — currently <c>None</c> or <c>Basic256Sha256</c>; defaults to <c>None</c> for sim-server use.</summary>
         public string SecurityPolicy { get; set; } = "None";
 
+        /// <summary>Whether an untrusted server certificate is accepted automatically. Defaults to <c>true</c>, which encrypts the channel but does <b>not</b> authenticate the server — any endpoint answering on <see cref="Endpoint"/> is trusted, so a username identity could be presented to an impostor. Set to <c>false</c> on hardened deployments: the server certificate must then be placed in the client's <c>pki/trusted</c> store.</summary>
+        public bool AcceptUntrustedServerCertificate { get; set; } = true;
+
         /// <summary>User identity for the session; defaults to anonymous.</summary>
         public OpcUaIdentityConfiguration Identity { get; set; } = new();
 

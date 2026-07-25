@@ -44,6 +44,9 @@ namespace MTConnect.OpcUa
         /// <summary>Raised for every value notification on every MonitoredItem; <c>isGood</c> reflects the OPC UA <see cref="StatusCode"/> quality.</summary>
         public event OpcUaValueReceivedHandler ValueReceived;
 
+        /// <summary>Raised for non-fatal conditions worth surfacing in the host's log — notably a weaker-than-configured negotiated security policy, or server-certificate validation being bypassed.</summary>
+        public event Action<string> Warning;
+
         /// <summary>Creates a client bound to <paramref name="config"/> and <paramref name="profile"/>; <paramref name="applicationName"/> is the OPC UA <see cref="ApplicationConfiguration.ApplicationName"/> reported to servers (used for audit/logging on the server side).</summary>
         public OpcUaSubscriptionClient(OpcUaClientConfiguration config, OpcUaProfile profile, string applicationName)
         {
@@ -66,6 +69,7 @@ namespace MTConnect.OpcUa
 
                 var useSecurity = !string.Equals(_config.SecurityPolicy, "None", StringComparison.OrdinalIgnoreCase);
                 var selectedEndpoint = await CoreClientUtils.SelectEndpointAsync(_appConfig, _config.Endpoint, useSecurity, _telemetry, default);
+                VerifyNegotiatedSecurity(useSecurity, selectedEndpoint);
                 var endpoint = new ConfiguredEndpoint(null, selectedEndpoint, EndpointConfiguration.Create(_appConfig));
 
                 var sessionFactory = new DefaultSessionFactory(_telemetry);
@@ -89,6 +93,35 @@ namespace MTConnect.OpcUa
             {
                 ConnectionError?.Invoke(ex);
                 throw;
+            }
+        }
+
+        // SelectEndpointAsync only takes a bool ("use security"), so it returns the server's
+        // most secure endpoint rather than the policy that was configured. Nothing else
+        // checks the result, so a server offering no secured endpoint would silently run
+        // unencrypted while the operator believed SecurityPolicy was in force.
+        private void VerifyNegotiatedSecurity(bool useSecurity, EndpointDescription selectedEndpoint)
+        {
+            if (!useSecurity) return;
+
+            if (selectedEndpoint.SecurityMode == MessageSecurityMode.None)
+            {
+                throw new InvalidOperationException(
+                    $"OPC UA server at {_config.Endpoint} offers no secured endpoint, but securityPolicy '{_config.SecurityPolicy}' was configured");
+            }
+
+            var negotiated = selectedEndpoint.SecurityPolicyUri;
+            if (!string.IsNullOrEmpty(negotiated)
+                && !negotiated.EndsWith("#" + _config.SecurityPolicy, StringComparison.OrdinalIgnoreCase))
+            {
+                Warning?.Invoke(
+                    $"securityPolicy '{_config.SecurityPolicy}' was configured but the server's most secure endpoint negotiated '{negotiated}'");
+            }
+
+            if (_config.AcceptUntrustedServerCertificate)
+            {
+                Warning?.Invoke(
+                    "server certificate validation is bypassed (acceptUntrustedServerCertificate: true) — the channel is encrypted but the server is NOT authenticated; set it to false and trust the server certificate in pki/trusted to close this gap");
             }
         }
 
@@ -210,6 +243,11 @@ namespace MTConnect.OpcUa
             // timestamps never run backwards across the outage.
             _disconnectMarkUtc = DateTime.UtcNow;
             Disconnected?.Invoke();
+            BeginReconnect();
+        }
+
+        private void BeginReconnect()
+        {
             _reconnectHandler = new SessionReconnectHandler(_telemetry, true, _config.ReconnectInterval);
             _reconnectHandler.BeginReconnect(_session, _config.ReconnectInterval, OnReconnectComplete);
         }
@@ -217,12 +255,28 @@ namespace MTConnect.OpcUa
         private void OnReconnectComplete(object sender, EventArgs e)
         {
             if (!ReferenceEquals(sender, _reconnectHandler)) return;
+
+            // A reconnect can complete without producing a session (the server never came
+            // back within the attempt). Raising Connected here announced a false recovery
+            // and then re-read every node on the dead session, so the module flapped
+            // between live and UNAVAILABLE. Start another attempt instead.
+            var recovered = _reconnectHandler.Session;
+            if (recovered == null)
+            {
+                _reconnectHandler.Dispose();
+                _reconnectHandler = null;
+                ConnectionError?.Invoke(new InvalidOperationException(
+                    "OPC UA reconnect completed without a session; retrying"));
+                if (_isRunning) BeginReconnect();
+                return;
+            }
+
             try
             {
-                if (_reconnectHandler.Session != null && !ReferenceEquals(_reconnectHandler.Session, _session))
+                if (!ReferenceEquals(recovered, _session))
                 {
                     _session.KeepAlive -= OnKeepAlive;
-                    _session = _reconnectHandler.Session;
+                    _session = recovered;
                     _session.KeepAlive += OnKeepAlive;
                 }
                 Connected?.Invoke();
@@ -330,7 +384,7 @@ namespace MTConnect.OpcUa
                             StoreType = CertificateStoreType.Directory,
                             StorePath = Path.Combine(pkiRoot, "rejected")
                         },
-                        AutoAcceptUntrustedCertificates = true,
+                        AutoAcceptUntrustedCertificates = _config.AcceptUntrustedServerCertificate,
                         AddAppCertToTrustedStore = true,
                     },
                     TransportConfigurations = new TransportConfigurationCollection(),
@@ -344,10 +398,17 @@ namespace MTConnect.OpcUa
             await application.ApplicationConfiguration.ValidateAsync(ApplicationType.Client);
             await application.CheckApplicationInstanceCertificatesAsync(silent: true);
 
+            // Accepting BadCertificateUntrusted is what makes securityPolicy encrypt-only:
+            // the channel is protected but the server is never authenticated. Honour the
+            // configuration so a hardened deployment can require the server certificate to
+            // be present in pki/trusted instead.
             application.ApplicationConfiguration.CertificateValidator.CertificateValidation += (s, e) =>
             {
-                if (e.Error.StatusCode == StatusCodes.BadCertificateUntrusted)
+                if (_config.AcceptUntrustedServerCertificate
+                    && e.Error.StatusCode == StatusCodes.BadCertificateUntrusted)
+                {
                     e.Accept = true;
+                }
             };
 
             return application.ApplicationConfiguration;
