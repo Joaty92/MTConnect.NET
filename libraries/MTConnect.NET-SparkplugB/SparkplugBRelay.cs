@@ -10,10 +10,8 @@ using MTConnect.Devices.DataItems;
 using MTConnect.Logging;
 using MTConnect.Observations;
 using MTConnect.Observations.Output;
-using SparkplugNet.Core.Enumerations;
-using SparkplugNet.Core.Node;
-using VersionBNode = SparkplugNet.VersionB.SparkplugNode;
-using VersionBData = SparkplugNet.VersionB.Data;
+using MTConnect.SparkplugB.Payload;
+using MTConnect.SparkplugB.Transport;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -35,21 +33,9 @@ namespace MTConnect.SparkplugB
         // one DDATA per device, instead of one MQTT packet per observation.
         private const int BatchWindowMs = 100;
 
-        // SPB spec: every NBIRTH MUST include a "Node Control/Rebirth" Boolean metric
-        // (value false). SparkplugNet builds NBIRTH from the node's known-metrics list
-        // AND filters incoming NCMD metrics against that same list — with an empty
-        // list the metric is missing from NBIRTH and a host's Rebirth NCMD is
-        // silently stripped before NodeCommandReceived fires.
-        private const string NodeControlRebirthName = "Node Control/Rebirth";
-
-        private static List<VersionBData.Metric> BuildNodeKnownMetrics() => new()
-        {
-            new VersionBData.Metric(NodeControlRebirthName, VersionBData.DataType.Boolean, false, DateTimeOffset.UtcNow),
-        };
-
         private readonly SparkplugBRelayConfiguration _config;
         private readonly IMTConnectAgentBroker _agent;
-        private VersionBNode _node;
+        private SparkplugEdgeNode _node;
         private CancellationTokenSource _cts;
         private Channel<WorkItem> _work;
         private Task _processTask;
@@ -60,28 +46,13 @@ namespace MTConnect.SparkplugB
         // loss is invisible unless it is counted. See ReportQueueDropsIfDue.
         private const int WorkQueueCapacity = 10000;
 
-        // How often to report queue overflow, and how often the maintenance loop checks
-        // that the NBIRTH observer is still connected. The latter is deliberately far
-        // shorter than the node's reconnectInterval so the observer is listening again
-        // before the node republishes its NBIRTH.
+        // How often to report queue overflow.
         private const int QueueDropReportMs = 30000;
-        private const int ObserverMaintenanceMs = 500;
 
-        // How long after the node reports Connected to wait for an NBIRTH before forcing
-        // a rebirth. Sparkplug forbids retaining NBIRTH and it is published at QoS 0, so a
-        // broker cannot replay one the observer was offline for; forcing a fresh NBIRTH is
-        // the only way to recover, and a rebirth is a legal Sparkplug event.
-        private const int NodeBirthWatchdogMs = 15000;
-
-        // Loopback subscriber used purely to observe this node's own NBIRTH — see
-        // StartNodeBirthObserverAsync for why this exists.
-        private IMqttClient _nodeBirthObserver;
-        private Task _observerMaintenanceTask;
-        private string _nodeBirthTopic;
-
-        // Cross-thread mirrors of loop-owned state, for the maintenance loop's watchdog.
-        private volatile bool _sessionBornSignal;
-        private volatile int _nodeConnectedTick;
+        // Where bdSeq is carried across process restarts. Resolved against the agent binary
+        // directory, and named per Edge Node identity so two relays in one process — a fleet
+        // split across several Edge Nodes — do not share a counter.
+        private const string BirthDeathSequenceFile = "bdseq";
 
         // Queue-loss accounting. _enqueued is written from the agent's observation dispatch
         // path (Interlocked); _processed and the reporting state below are loop-owned.
@@ -92,11 +63,12 @@ namespace MTConnect.SparkplugB
         private long _reportedDrops;
         private int _lastDropReportTick = Environment.TickCount;
 
-        // True once an NBIRTH for the current MQTT session has been seen on the wire.
+        // True once the edge node has published NBIRTH for the current session.
         // Sparkplug 3.0 tck-id-message-flow-device-birth-publish-nbirth-wait: "The NBIRTH
         // message MUST have been sent within the current MQTT session prior to a DBIRTH
-        // being published." This is the hard gate that enforces it; the triggers below
-        // are what open it. Loop-owned, like _deviceBorn.
+        // being published." The edge node publishes NBIRTH itself and only then raises
+        // SessionEstablished, so ordering is guaranteed by construction; this flag simply
+        // stops queued work from leaking across a session boundary. Loop-owned.
         private bool _sessionBorn;
 
         // UUID → device Name (written by the processing loop, read on the agent's
@@ -158,198 +130,60 @@ namespace MTConnect.SparkplugB
                 FullMode = BoundedChannelFullMode.DropOldest,
             });
 
-            _node = new VersionBNode(
-                BuildNodeKnownMetrics(),
-                SparkplugSpecificationVersion.Version30,
-                logger: null);
-
-            // Deliberately NOT a birth trigger. SparkplugNodeBase.Start() runs
-            // ConnectInternal() -> SubscribeInternal() -> PublishNodeAndDeviceBirthsInternal(),
-            // and Connected is fired from OnClientConnected inside step 1 — so it means
-            // "the MQTT socket is up", not "NBIRTH has been published". Triggering the
-            // DBIRTH round here raced the SUBSCRIBE round-trip and lost, putting every
-            // DBIRTH on the wire ahead of the NBIRTH. Births are driven by the NBIRTH
-            // observer instead; see StartNodeBirthObserverAsync.
-            _node.Connected += (args) =>
+            _node = new SparkplugEdgeNode(new SparkplugEdgeNodeOptions
             {
-                Log(MTConnectLogLevel.Information, "SparkplugB node connected — awaiting NBIRTH before publishing DBIRTHs");
-                _nodeConnectedTick = Environment.TickCount;
+                Server = _config.Server,
+                Port = _config.Port,
+                ClientId = _config.ClientId,
+                Username = _config.Username,
+                Password = _config.Password,
+                GroupId = _config.GroupId,
+                EdgeNodeId = _config.NodeId,
+                PrimaryHostId = _config.PrimaryHostId,
+                ReconnectIntervalMs = _config.ReconnectInterval,
+                TlsOptions = BuildTlsOptions(),
+                BirthDeathSequencePath = ResolvePath(BirthDeathSequenceFile)
+            });
+
+            _node.LogReceived += Log;
+
+            // Every NBIRTH metric this relay contributes. The edge node adds bdSeq and
+            // Node Control/Rebirth itself, since both are protocol-level rather than ours.
+            _node.NodeMetricsProvider = () => Array.Empty<SparkplugMetric>();
+
+            // Raised only after NBIRTH has reached the wire, so device births cannot precede
+            // it. That ordering is structural now — the edge node publishes NBIRTH and awaits
+            // it before raising this — rather than something observed after the fact.
+            _node.SessionEstablished += () =>
+            {
+                Log(MTConnectLogLevel.Information, "NBIRTH published — publishing DBIRTH for all devices");
+                Enqueue(WorkItem.ForPublishAllBirths());
                 return Task.CompletedTask;
             };
 
-            _node.Disconnected += (args) =>
+            _node.SessionLost += () =>
             {
-                Log(MTConnectLogLevel.Information, "SparkplugB broker disconnected — will reconnect automatically");
-                // The Sparkplug session is over: no DBIRTH may be published until the
-                // next session's NBIRTH is seen, and every device must be re-born.
+                // The Sparkplug session is over: nothing may be published until the next
+                // NBIRTH, and every device must be re-born into the new session.
                 Enqueue(WorkItem.ForSessionEnded());
                 return Task.CompletedTask;
             };
 
-            // SPB spec §6.4.3: NCMD with Node Control/Rebirth=true MUST cause the node to
-            // republish NBIRTH followed by DBIRTH for every managed device. Rebirth()
-            // publishes the NBIRTH; the observer sees it and drives the DBIRTH round, so
-            // the ordering guarantee is the same one the reconnect path gets.
-            _node.NodeCommandReceived += (args) =>
+            // The edge node republishes NBIRTH itself on an NCMD Rebirth; this only has to
+            // rebuild the device births that follow it.
+            _node.RebirthRequested += () =>
             {
-                if (!args.Metrics.Any(m => string.Equals(m.Name, NodeControlRebirthName, StringComparison.OrdinalIgnoreCase)))
-                    return Task.CompletedTask;
-                Log(MTConnectLogLevel.Information, "NCMD Rebirth received — republishing NBIRTH");
-                Enqueue(WorkItem.ForNodeRebirth());
+                Enqueue(WorkItem.ForSessionEnded());
                 return Task.CompletedTask;
             };
 
             _processTask = Task.Run(() => ProcessWorkAsync(_cts.Token));
 
-            var options = new SparkplugNodeOptions(
-                brokerAddress: _config.Server,
-                port: _config.Port,
-                clientId: _config.ClientId ?? $"MTConnect-{Guid.NewGuid():N}",
-                userName: _config.Username,
-                password: _config.Password,
-                // Null (the default) means no primary application is required and NBIRTH is
-                // published as soon as the connection is up. Setting primaryHostId makes the
-                // node wait for that host's STATE to report online first — Sparkplug's
-                // tck-id-message-flow-edge-node-birth-publish-phid-wait.
-                scadaHostIdentifier: string.IsNullOrWhiteSpace(_config.PrimaryHostId) ? null : _config.PrimaryHostId,
-                reconnectInterval: TimeSpan.FromMilliseconds(_config.ReconnectInterval),
-                mqttProtocolVersion: null,
-                mqttTlsOptions: BuildTlsOptions(),
-                mqttWebSocketOptions: null,
-                groupIdentifier: _config.GroupId,
-                edgeNodeIdentifier: _config.NodeId,
-                cancellationToken: _cts.Token);
-
-            // Defaults to true, and is not a constructor parameter, so it was silently on.
-            // PublishDeviceBirthMessage registers devices with KnownDevices.TryAdd — an
-            // add, never an update — so the cached metrics are frozen at each device's
-            // FIRST birth, which for a machine that had not yet reported is an all-null
-            // snapshot. Letting the library replay that on every reconnect published stale
-            // duplicate DBIRTHs alongside our own. This relay owns the birth round because
-            // only it can source current values from the agent buffer.
-            options.PublishKnownDeviceMetricsOnReconnect = false;
-
-            // Must be listening before Start(), or the first session's NBIRTH is published
-            // and gone before the observer subscribes, and nothing would ever be born.
-            await StartNodeBirthObserverAsync();
-
-            await _node.Start(options, null!);
+            await _node.StartAsync(_cts.Token);
         }
 
-        // Subscribes a lightweight MQTT client to this node's own NBIRTH topic so the
-        // relay can know, rather than assume, that NBIRTH is on the wire before it
-        // publishes any DBIRTH.
-        //
-        // SparkplugNet offers no signal for this. It exposes DeviceBirthPublishing and
-        // DeviceDeathPublishing but no NodeBirthPublishing; SparkplugNode is sealed and
-        // ConnectInternal / SubscribeInternal / PublishNodeAndDeviceBirthsInternal are all
-        // private, so the event cannot be added by subclassing either. Observing the
-        // broker's own echo of the message is the only deterministic answer available
-        // through the public API, and it covers all three cases that start a Sparkplug
-        // session — first connect, reconnect, and NCMD rebirth — through one code path.
-        private async Task StartNodeBirthObserverAsync()
-        {
-            _nodeBirthTopic = $"spBv1.0/{_config.GroupId}/NBIRTH/{_config.NodeId}";
 
-            _nodeBirthObserver = new MqttFactory().CreateMqttClient();
-            _nodeBirthObserver.ApplicationMessageReceivedAsync += _ =>
-            {
-                Log(MTConnectLogLevel.Information, "NBIRTH observed — publishing DBIRTH for all devices");
-                Enqueue(WorkItem.ForPublishAllBirths());
-                return Task.CompletedTask;
-            };
-
-            // Connect once up front so the first session's NBIRTH cannot be missed, then
-            // hand over to the maintenance loop. A failure here is not fatal: the loop
-            // retries, and the watchdog forces a rebirth once it succeeds.
-            try
-            {
-                await ConnectObserverAsync(_cts.Token);
-            }
-            catch (Exception ex)
-            {
-                Log(MTConnectLogLevel.Warning,
-                    $"NBIRTH observer could not connect yet ({ex.Message}) — retrying every {ObserverMaintenanceMs} ms");
-            }
-
-            _observerMaintenanceTask = Task.Run(() => MaintainNodeBirthObserverAsync(_cts.Token));
-        }
-
-        private async Task ConnectObserverAsync(CancellationToken cancellationToken)
-        {
-            var builder = new MqttClientOptionsBuilder()
-                .WithTcpServer(_config.Server, _config.Port)
-                .WithClientId($"{_config.ClientId ?? "MTConnect"}-nbirth-{Guid.NewGuid():N}".Substring(0, 32))
-                // A clean session is correct here: NBIRTH is QoS 0 so nothing would be
-                // queued for us while offline anyway, and the watchdog covers that gap.
-                .WithCleanSession();
-
-            if (!string.IsNullOrEmpty(_config.Username))
-                builder = builder.WithCredentials(_config.Username, _config.Password);
-
-            var tls = BuildTlsOptions();
-            if (tls != null) builder = builder.WithTlsOptions(tls);
-
-            await _nodeBirthObserver.ConnectAsync(builder.Build(), cancellationToken);
-            await _nodeBirthObserver.SubscribeAsync(_nodeBirthTopic, cancellationToken: cancellationToken);
-            Log(MTConnectLogLevel.Information, $"NBIRTH observer subscribed to {_nodeBirthTopic}");
-        }
-
-        // Keeps the observer alive and un-wedges the birth gate.
-        //
-        // MQTTnet's IMqttClient does not reconnect on its own, so without this a single
-        // broker restart would kill the observer, leave the gate shut, and silence the
-        // relay permanently — every DBIRTH and DDATA suppressed with no way back.
-        //
-        // The watchdog covers the residual race: the node and the observer both lose the
-        // broker together, and if the node reconnects and republishes its NBIRTH before the
-        // observer is listening again, that NBIRTH is gone for good (QoS 0, retain
-        // forbidden). Forcing a rebirth produces a fresh one the observer will catch.
-        private async Task MaintainNodeBirthObserverAsync(CancellationToken cancellationToken)
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                try { await Task.Delay(ObserverMaintenanceMs, cancellationToken); }
-                catch (OperationCanceledException) { return; }
-
-                if (!_isRunning) return;
-
-                try
-                {
-                    if (_nodeBirthObserver != null && !_nodeBirthObserver.IsConnected)
-                    {
-                        await ConnectObserverAsync(cancellationToken);
-                    }
-                    else if (NodeBirthOverdue())
-                    {
-                        Log(MTConnectLogLevel.Warning,
-                            $"node connected but no NBIRTH seen within {NodeBirthWatchdogMs} ms — forcing a rebirth to recover the birth sequence");
-                        _nodeConnectedTick = Environment.TickCount;
-                        Enqueue(WorkItem.ForNodeRebirth());
-                    }
-                }
-                catch (OperationCanceledException) { return; }
-                catch (Exception ex)
-                {
-                    Log(MTConnectLogLevel.Debug, $"NBIRTH observer maintenance: {ex.Message}");
-                }
-            }
-        }
-
-        private bool NodeBirthOverdue()
-        {
-            if (_sessionBornSignal) return false;
-            if (_node == null || !_node.IsConnected) return false;
-            if (_nodeBirthObserver == null || !_nodeBirthObserver.IsConnected) return false;
-
-            var connectedTick = _nodeConnectedTick;
-            if (connectedTick == 0) return false;
-
-            // Unsigned subtraction so this stays correct across TickCount wraparound.
-            return unchecked((uint)(Environment.TickCount - connectedTick)) >= NodeBirthWatchdogMs;
-        }
-
-        /// <summary>Stops the processing loop and the edge node; relies on the broker delivering the configured Sparkplug NDEATH will-message.</summary>
+        /// <summary>Stops the processing loop, then ends the Sparkplug session intentionally — the edge node publishes NDEATH and disconnects cleanly, so consumers can tell a planned stop from a crash.</summary>
         public async Task Stop()
         {
             _isRunning = false;
@@ -359,18 +193,11 @@ namespace MTConnect.SparkplugB
             {
                 try { await _processTask; } catch { }
             }
-            if (_observerMaintenanceTask != null)
+            if (_node != null)
             {
-                try { await _observerMaintenanceTask; } catch { }
-                _observerMaintenanceTask = null;
+                await _node.DisposeAsync();
+                _node = null;
             }
-            if (_nodeBirthObserver != null)
-            {
-                try { await _nodeBirthObserver.DisconnectAsync(); } catch { }
-                try { _nodeBirthObserver.Dispose(); } catch { }
-                _nodeBirthObserver = null;
-            }
-            if (_node != null) await _node.Stop();
         }
 
         /// <summary>Handler invoked by the agent when a device is added or rediscovered; queues a DBIRTH for the new device.</summary>
@@ -423,7 +250,7 @@ namespace MTConnect.SparkplugB
         {
             var reader = _work.Reader;
             // deviceName → metrics accumulated during the current batch window
-            var pending = new Dictionary<string, List<VersionBData.Metric>>();
+            var pending = new Dictionary<string, List<SparkplugMetric>>();
 
             try
             {
@@ -456,7 +283,7 @@ namespace MTConnect.SparkplugB
             }
         }
 
-        private async Task HandleWorkItemAsync(WorkItem item, Dictionary<string, List<VersionBData.Metric>> pending)
+        private async Task HandleWorkItemAsync(WorkItem item, Dictionary<string, List<SparkplugMetric>> pending)
         {
             switch (item.Kind)
             {
@@ -486,7 +313,6 @@ namespace MTConnect.SparkplugB
                     // Reached only after an NBIRTH was seen on the wire, so this is the
                     // point at which DBIRTHs become legal for the new session.
                     _sessionBorn = true;
-                    _sessionBornSignal = true;
                     _deviceBorn.Clear();
                     foreach (var device in _agent.GetDevices() ?? Enumerable.Empty<IDevice>())
                         await PublishDeviceBirthAsync(device, pending);
@@ -503,23 +329,21 @@ namespace MTConnect.SparkplugB
                     // actually on the wire. Publishing births inline would race it exactly
                     // as the old connect-time trigger did.
                     _sessionBorn = false;
-                    _sessionBornSignal = false;
                     pending.Clear();
-                    await _node.Rebirth(BuildNodeKnownMetrics());
+                    await _node.RebirthAsync();
                     return;
 
                 case WorkKind.SessionEnded:
                     // Nothing may be published until the next NBIRTH is observed, and any
                     // DDATA queued for the dead session must not straddle into the new one.
                     _sessionBorn = false;
-                    _sessionBornSignal = false;
                     _deviceBorn.Clear();
                     pending.Clear();
                     return;
             }
         }
 
-        private async Task HandleAvailabilityChangeAsync(string deviceName, IObservation observation, Dictionary<string, List<VersionBData.Metric>> pending)
+        private async Task HandleAvailabilityChangeAsync(string deviceName, IObservation observation, Dictionary<string, List<SparkplugMetric>> pending)
         {
             var raw = observation.IsUnavailable ? null : observation.GetValue(ValueKeys.Result);
             var isAvailable = SparkplugBAvailability.IsAvailableValue(raw);
@@ -549,7 +373,7 @@ namespace MTConnect.SparkplugB
             Append(pending, deviceName, SparkplugBMetricMapper.ToMetric(observation));
         }
 
-        private async Task PublishDeviceBirthAsync(IDevice device, Dictionary<string, List<VersionBData.Metric>> pending)
+        private async Task PublishDeviceBirthAsync(IDevice device, Dictionary<string, List<SparkplugMetric>> pending)
         {
             if (!_isRunning || _node == null || device == null) return;
 
@@ -579,7 +403,7 @@ namespace MTConnect.SparkplugB
 
             try
             {
-                await _node.PublishDeviceBirthMessage(metrics, device.Name, logger: null);
+                await _node.PublishDeviceBirthAsync(device.Name, metrics);
                 Log(MTConnectLogLevel.Information, $"Published DBIRTH for {device.Name} ({metrics.Count} metrics)");
 
                 // Resolve born state from current AVAILABILITY so DDATA suppression is
@@ -628,7 +452,7 @@ namespace MTConnect.SparkplugB
             if (!_isRunning || _node == null) return;
             try
             {
-                await _node.PublishDeviceDeathMessage(deviceName);
+                await _node.PublishDeviceDeathAsync(deviceName);
                 Log(MTConnectLogLevel.Information, $"Published DDEATH for {deviceName}");
             }
             catch (Exception ex)
@@ -637,17 +461,17 @@ namespace MTConnect.SparkplugB
             }
         }
 
-        private static void Append(Dictionary<string, List<VersionBData.Metric>> pending, string deviceName, VersionBData.Metric metric)
+        private static void Append(Dictionary<string, List<SparkplugMetric>> pending, string deviceName, SparkplugMetric metric)
         {
             if (!pending.TryGetValue(deviceName, out var metrics))
             {
-                metrics = new List<VersionBData.Metric>();
+                metrics = new List<SparkplugMetric>();
                 pending[deviceName] = metrics;
             }
             metrics.Add(metric);
         }
 
-        private async Task FlushAllAsync(Dictionary<string, List<VersionBData.Metric>> pending)
+        private async Task FlushAllAsync(Dictionary<string, List<SparkplugMetric>> pending)
         {
             if (pending.Count == 0) return;
             foreach (var deviceName in pending.Keys.ToList())
@@ -656,7 +480,7 @@ namespace MTConnect.SparkplugB
             }
         }
 
-        private async Task FlushDeviceAsync(string deviceName, Dictionary<string, List<VersionBData.Metric>> pending)
+        private async Task FlushDeviceAsync(string deviceName, Dictionary<string, List<SparkplugMetric>> pending)
         {
             if (!pending.TryGetValue(deviceName, out var metrics)) return;
             pending.Remove(deviceName);
@@ -664,7 +488,7 @@ namespace MTConnect.SparkplugB
 
             try
             {
-                await _node.PublishDeviceData(metrics, deviceName);
+                await _node.PublishDeviceDataAsync(deviceName, metrics);
             }
             catch (Exception ex)
             {

@@ -6,7 +6,7 @@ using MTConnect.Devices.DataItems;
 using MTConnect.Observations;
 using MTConnect.Observations.Output;
 using NUnit.Framework;
-using SparkplugNet.VersionB.Data;
+using MTConnect.SparkplugB.Payload;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -44,8 +44,8 @@ namespace MTConnect.SparkplugB.Tests
             var metric = SparkplugBMetricMapper.ToMetric(
                 Observation("POSITION", "Xact", DataItemCategory.SAMPLE, isUnavailable: true));
 
-            Assert.That(metric.IsNull, Is.True, "an unavailable SAMPLE must not publish a fabricated value");
-            Assert.That(metric.DataType, Is.EqualTo(DataType.Double), "DBIRTH declared Double; DDATA must keep matching it");
+            Assert.That(metric.IsNull, Is.EqualTo(true), "an unavailable SAMPLE must not publish a fabricated value");
+            Assert.That(metric.DataType, Is.EqualTo((uint)SparkplugDataType.Double), "DBIRTH declared Double; DDATA must keep matching it");
         }
 
         [Test]
@@ -56,8 +56,8 @@ namespace MTConnect.SparkplugB.Tests
             var metric = SparkplugBMetricMapper.ToMetric(
                 Observation("POSITION", "Xact", DataItemCategory.SAMPLE, value: "not-a-number"));
 
-            Assert.That(metric.IsNull, Is.True);
-            Assert.That(metric.DataType, Is.EqualTo(DataType.Double));
+            Assert.That(metric.IsNull, Is.EqualTo(true));
+            Assert.That(metric.DataType, Is.EqualTo((uint)SparkplugDataType.Double));
         }
 
         [Test]
@@ -66,9 +66,9 @@ namespace MTConnect.SparkplugB.Tests
             var metric = SparkplugBMetricMapper.ToMetric(
                 Observation("POSITION", "Xact", DataItemCategory.SAMPLE, value: "12.5"));
 
-            Assert.That(metric.IsNull, Is.False);
-            Assert.That(metric.DataType, Is.EqualTo(DataType.Double));
-            Assert.That(metric.Value, Is.EqualTo(12.5));
+            Assert.That(metric.IsNull, Is.EqualTo(false));
+            Assert.That(metric.DataType, Is.EqualTo((uint)SparkplugDataType.Double));
+            Assert.That(metric.DoubleValue, Is.EqualTo(12.5));
         }
 
         [Test]
@@ -79,8 +79,8 @@ namespace MTConnect.SparkplugB.Tests
             var metric = SparkplugBMetricMapper.ToMetric(
                 Observation("POSITION", "Xact", DataItemCategory.SAMPLE, value: "0"));
 
-            Assert.That(metric.IsNull, Is.False);
-            Assert.That(metric.Value, Is.EqualTo(0.0));
+            Assert.That(metric.IsNull, Is.EqualTo(false));
+            Assert.That(metric.DoubleValue, Is.EqualTo(0.0));
         }
 
         [Test]
@@ -89,9 +89,9 @@ namespace MTConnect.SparkplugB.Tests
             var metric = SparkplugBMetricMapper.ToMetric(
                 Observation("EXECUTION", null, DataItemCategory.EVENT, isUnavailable: true));
 
-            Assert.That(metric.IsNull, Is.False, "a String metric can carry UNAVAILABLE without lying about its type");
-            Assert.That(metric.DataType, Is.EqualTo(DataType.String));
-            Assert.That(metric.Value, Is.EqualTo(Observations.Observation.Unavailable));
+            Assert.That(metric.IsNull, Is.EqualTo(false), "a String metric can carry UNAVAILABLE without lying about its type");
+            Assert.That(metric.DataType, Is.EqualTo((uint)SparkplugDataType.String));
+            Assert.That(metric.StringValue, Is.EqualTo(Observations.Observation.Unavailable));
         }
 
         [Test]
@@ -107,12 +107,12 @@ namespace MTConnect.SparkplugB.Tests
             var metrics = SparkplugBMetricMapper.BirthMetricsForDevice(device, currentObservations: null);
 
             var position = metrics.Single(m => m.Name.StartsWith("POSITION"));
-            Assert.That(position.IsNull, Is.True);
-            Assert.That(position.DataType, Is.EqualTo(DataType.Double));
+            Assert.That(position.IsNull, Is.EqualTo(true));
+            Assert.That(position.DataType, Is.EqualTo((uint)SparkplugDataType.Double));
 
             var execution = metrics.Single(m => m.Name.StartsWith("EXECUTION"));
-            Assert.That(execution.IsNull, Is.False);
-            Assert.That(execution.Value, Is.EqualTo(Observations.Observation.Unavailable));
+            Assert.That(execution.IsNull, Is.EqualTo(false));
+            Assert.That(execution.StringValue, Is.EqualTo(Observations.Observation.Unavailable));
         }
 
         [Test]
@@ -125,8 +125,8 @@ namespace MTConnect.SparkplugB.Tests
                 new[] { Output("pos", "POSITION", DataItemCategory.SAMPLE, "42.75") });
 
             var position = metrics.Single();
-            Assert.That(position.IsNull, Is.False);
-            Assert.That(position.Value, Is.EqualTo(42.75));
+            Assert.That(position.IsNull, Is.EqualTo(false));
+            Assert.That(position.DoubleValue, Is.EqualTo(42.75));
         }
 
         [Test]
