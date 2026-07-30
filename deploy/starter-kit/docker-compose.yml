@@ -32,3 +32,9 @@ services:
       # Uncomment for OPC UA securityPolicy: Basic256Sha256 — persists the self-signed client
       # cert (pki/own) so the server only trusts it once, not after every container restart:
       # - ./pki:/app/pki
+
+# Every device this agent loads is published under ONE Sparkplug Edge Node, so a
+# rebirth, an NDEATH, or a config-file restart applies to all of them at once. To
+# split a larger fleet across several Edge Nodes, add one service per node with its
+# own config/ and devices/ folder — worked example and the reasoning are in
+# ../docker-compose.deploy.template.yml and deploy/README.md.
