@@ -35,6 +35,9 @@ services:
       - ./devices:/app/devices
       - ./profiles:/app/profiles
       - ./logs:/app/logs
+      # Sparkplug bdSeq counter — see "Persisting the Sparkplug bdSeq counter" in
+      # deploy/README.md. No config change needed; serves every sparkplug-relay block.
+      - ./state:/app/state
 
   # ---------------------------------------------------------------------------
   #  A SECOND Sparkplug Edge Node (optional)

@@ -49,10 +49,18 @@ namespace MTConnect.SparkplugB
         // How often to report queue overflow.
         private const int QueueDropReportMs = 30000;
 
-        // Where bdSeq is carried across process restarts. Resolved against the agent binary
-        // directory, and named per Edge Node identity so two relays in one process — a fleet
-        // split across several Edge Nodes — do not share a counter.
-        private const string BirthDeathSequenceFile = "bdseq";
+        // Prefix of the file carrying bdSeq across restarts. The Edge Node identity is appended,
+        // so a fleet split across several Edge Nodes can share one state directory — and one
+        // mounted volume — without two relays clobbering each other's counter. Sharing one would
+        // make bdSeq non-monotonic on both nodes, which is precisely the confusion it exists to
+        // prevent.
+        private const string BirthDeathSequencePrefix = "bdseq";
+
+        // Default directory for persisted state, relative to the agent binary directory. A
+        // convention rather than a required setting: mounting a volume at this path is enough to
+        // make bdSeq survive, with nothing to declare per relay block. Without the mount the
+        // directory is still created and used, it simply does not outlive the container.
+        private const string DefaultStateDirectory = "state";
 
         // Queue-loss accounting. _enqueued is written from the agent's observation dispatch
         // path (Interlocked); _processed and the reporting state below are loop-owned.
@@ -142,10 +150,7 @@ namespace MTConnect.SparkplugB
                 PrimaryHostId = _config.PrimaryHostId,
                 ReconnectIntervalMs = _config.ReconnectInterval,
                 TlsOptions = BuildTlsOptions(),
-                BirthDeathSequencePath = ResolvePath(
-                    string.IsNullOrWhiteSpace(_config.BirthDeathSequencePath)
-                        ? BirthDeathSequenceFile
-                        : _config.BirthDeathSequencePath)
+                BirthDeathSequencePath = BuildBirthDeathSequencePath()
             });
 
             _node.LogReceived += Log;
@@ -535,6 +540,34 @@ namespace MTConnect.SparkplugB
             }
 
             return tls;
+        }
+
+        // One file per Edge Node identity inside the configured state directory.
+        private string BuildBirthDeathSequencePath()
+        {
+            var identity = Sanitise($"{_config.GroupId}-{_config.NodeId}");
+            var fileName = $"{BirthDeathSequencePrefix}-{identity}";
+
+            var directory = string.IsNullOrWhiteSpace(_config.StateDirectory)
+                ? DefaultStateDirectory
+                : _config.StateDirectory;
+
+            return ResolvePath(Path.Combine(directory, fileName));
+        }
+
+        // Sparkplug identifiers are already free of '/', '+' and '#', but nothing stops a Group or
+        // Edge Node ID containing characters a filesystem rejects.
+        private static string Sanitise(string value)
+        {
+            var chars = value.ToCharArray();
+            for (var i = 0; i < chars.Length; i++)
+            {
+                var c = chars[i];
+                var safe = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                           || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+                if (!safe) chars[i] = '_';
+            }
+            return new string(chars);
         }
 
         private static string ResolvePath(string path) =>

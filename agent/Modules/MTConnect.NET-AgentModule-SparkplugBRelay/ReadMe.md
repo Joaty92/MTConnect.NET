@@ -4,23 +4,54 @@
 
 In-process agent module that bridges every device on this agent to **Sparkplug B** over MQTT. Each MTConnect device becomes a Sparkplug "Device" under one shared Edge Node identity; observations are republished as `DDATA` as they land in the agent buffer.
 
-## Birth ordering
+## Sparkplug transport
 
-Sparkplug 3.0 `tck-id-message-flow-device-birth-publish-nbirth-wait` requires that "the NBIRTH message MUST have been sent within the current MQTT session prior to a DBIRTH being published", and `...nbirth-payload-seq` makes each following message's `seq` exactly one more than the last. Getting this wrong is not cosmetic: a Host Application has no session to attach pre-NBIRTH messages to, so every device born early is invisible until a reorder timeout triggers a rebirth — and that timeout is only a SHOULD in the spec.
+This module owns its Sparkplug B implementation rather than wrapping a client library. The MQTT session, topic construction, both sequence counters, the Will Message and the payload encoding all live in `MTConnect.NET-SparkplugB` under `Transport/` and `Payload/`.
 
-The relay therefore publishes **no DBIRTH until it has observed an NBIRTH on the wire for the current session**. That gate is driven by a small loopback MQTT subscriber on `spBv1.0/{groupId}/NBIRTH/{nodeId}`, because SparkplugNet provides no way to learn when NBIRTH was published:
+The payload contract is hand-written from the specification's normative payload section rather than generated. Eclipse publishes `sparkplug_b.proto` under EPL-2.0, and generating from it would pull an EPL file and its output into this MIT repository. Field numbers were checked one by one against that `.proto` without copying it, and a test encodes with our contract and decodes with an independently generated model — two independently written contracts agreeing catches a wrong field number, which round-tripping against ourselves cannot.
 
-- `Start()` runs `ConnectInternal()` → `SubscribeInternal()` → `PublishNodeAndDeviceBirthsInternal()`, and the `Connected` event fires inside the first step. It means "the socket is up", not "NBIRTH is out" — using it as a birth trigger loses the race against the SUBSCRIBE round-trip.
-- There are `DeviceBirthPublishing` and `DeviceDeathPublishing` events but no `NodeBirthPublishing`, and `SparkplugNode` is `sealed` with those three methods `private`, so the event cannot be added by subclassing either.
+**Birth ordering is structural.** Sparkplug 3.0 `tck-id-message-flow-device-birth-publish-nbirth-wait` requires that "the NBIRTH message MUST have been sent within the current MQTT session prior to a DBIRTH being published", and `...nbirth-payload-seq` makes each following message's `seq` exactly one more than the last. Getting this wrong is not cosmetic: a Host Application has no session to attach pre-NBIRTH messages to, so every device born early is invisible until a reorder timeout triggers a rebirth — and that timeout is only a SHOULD in the spec. The edge node publishes NBIRTH itself and awaits it before raising the event that drives device births, so a DBIRTH cannot precede its NBIRTH by construction.
 
-Observing the broker's echo of our own NBIRTH is the one deterministic signal the public API allows, and it covers all three session starts — first connect, reconnect, and NCMD rebirth — through a single path.
+Per the specification, and confirmed against the Eclipse sources rather than assumed:
 
-Two supporting details, both load-bearing:
+| Message | QoS | Retain | Sequence number |
+| --- | --- | --- | --- |
+| NBIRTH, DBIRTH, NDATA, DDATA, DDEATH | 0 | false | yes, +1 each, wrapping 255 → 0 |
+| NDEATH (registered as the Will Message) | 1 | false | **none** — `tck-id-payloads-ndeath-seq` |
+| NCMD / DCMD subscriptions | 1 | — | — |
 
-- **The observer maintains its own connection** (checked every 500 ms, far below the node's `reconnectInterval`). MQTTnet's `IMqttClient` does not reconnect on its own; without this a single broker restart leaves the gate shut and silences the relay permanently.
-- **A watchdog forces a rebirth** if the node is connected but no NBIRTH has arrived within 15 s. NBIRTH is published at QoS 0 and must not be retained, so a broker cannot replay one the observer was offline for — forcing a fresh NBIRTH is the only recovery, and a rebirth is a legal Sparkplug event.
+**`bdSeq`** is what lets a Host Application tell a live session from a stale NDEATH the broker delivered late: the Will registered on a connection and the NBIRTH published on that same connection carry the same value, and it advances on every CONNECT. It is persisted, because a restarted node beginning again at zero would replay values the host has already seen — see [Persisting bdSeq](#persisting-bdseq), which matters in a container.
 
-`PublishKnownDeviceMetricsOnReconnect` is explicitly set to `false`. It defaults to `true` and is not a constructor parameter, so it was silently on; combined with `PublishDeviceBirthMessage` registering devices via `KnownDevices.TryAdd` — an add, never an update — the library replayed each device's *first* birth on every reconnect, which for a machine that had not yet reported is a permanently stale all-null snapshot. This relay owns the birth round because only it can source current values from the agent buffer.
+**Primary Host awareness.** With `primaryHostId` set, the node subscribes to `spBv1.0/STATE/{hostId}` and withholds NBIRTH until that host reports online, ending the session if it goes offline (`tck-id-message-flow-edge-node-birth-publish-phid-wait`).
+
+**Shutdown is intentional.** On stop the node publishes NDEATH and then sends a clean MQTT DISCONNECT. On MQTT 3.1.1 a clean DISCONNECT suppresses the Will, so a node that merely disconnects announces nothing, and one that is killed announces its shutdown as a crash — neither lets a consumer tell a planned stop from a failure.
+
+**DCMD** is subscribed for every device, but this relay is outbound-only: MTConnect offers no write path back to the machine here, so an arriving command is logged and explicitly ignored rather than silently dropped.
+
+## Persisting bdSeq
+
+`bdSeq` has to keep advancing across restarts, so the agent writes it to a `state` directory beside its binary. Inside a container that is lost on recreation, so **mount a volume there** — one line, and nothing to declare per relay block:
+
+```yaml
+volumes:
+  - ./state:/app/state
+```
+
+One directory serves any number of `sparkplug-relay` blocks: each file is named after its Edge Node identity (`bdseq-<groupId>-<nodeId>`), so two Edge Nodes never share a counter. Override the location with `stateDirectory` only if the default does not suit.
+
+Without the mount the relay still runs — the counter simply restarts at zero on each deployment, replaying values a Host Application has already seen.
+
+## Conformance
+
+Validated against the Eclipse Sparkplug TCK 3.0.0, driven over MQTT (the web console is optional — it only publishes `NEW_TEST` to `SPARKPLUG_TCK/TEST_CONTROL`):
+
+| Test | Result |
+| --- | --- |
+| `SessionEstablishmentTest` | 82 PASS, 0 FAIL |
+| `SendDataTest` (live machine data) | 23 PASS, 0 FAIL |
+| `SessionTerminationTest` | 23 PASS, 0 FAIL |
+
+Assertions reported NOT EXECUTED are inapplicable rather than unmet: metric aliases, which this relay does not use; MQTT 5 clean-session and disconnect semantics, where it speaks 3.1.1; and the `ddeath` assertions, which require an individual Device to go offline rather than the whole Edge Node.
 
 Implements the full Sparkplug B lifecycle:
 
@@ -28,7 +59,7 @@ Implements the full Sparkplug B lifecycle:
 - **DBIRTH** per device on connect / `DeviceAdded` — full current-value snapshot for every DataItem in the device, with each metric carrying its observation's **real timestamp** (not the rebirth time), so historians don't record phantom updates at every reconnect.
 - **DDATA** batched per device as values change.
 - **DDEATH** when a device flips to `AVAILABILITY=UNAVAILABLE`, with a re-`DBIRTH` if it comes back.
-- **NDEATH** is registered as the broker's last-will — if the agent process dies, every downstream consumer sees all devices on this node go offline simultaneously.
+- **NDEATH** is registered as the broker's last-will for an ungraceful exit, and published deliberately before a clean DISCONNECT on an intentional stop — so consumers can tell a planned shutdown from a crash. Either way every device on this node goes offline at once.
 - **NCMD Node Control/Rebirth** is honoured: a primary host sending `Node Control/Rebirth=true` causes the module to republish NBIRTH + every DBIRTH.
 
 ## Configuration
@@ -64,6 +95,7 @@ Add a `- sparkplug-relay:` block under `modules:` in `agent.config.yaml`. One bl
 | `groupId`                   | yes      | `MTConnect`        | Sparkplug Group ID (first path segment in topics: `spBv1.0/{groupId}/...`).                        |
 | `nodeId`                    | yes      | `Agent`            | Sparkplug Edge Node ID (`spBv1.0/{groupId}/DBIRTH/{nodeId}/{deviceKey}`).                          |
 | `reconnectInterval`         | no       | `10000`            | Milliseconds between reconnect attempts after the broker connection drops.                         |
+| `stateDirectory`            | no       | `state`            | Overrides where persisted `bdSeq` lives. Rarely needed — see [Persisting bdSeq](#persisting-bdseq). |
 | `primaryHostId`             | no       | —                  | Sparkplug Primary Host Application ID. When set, NBIRTH waits for that host's `STATE` to report online (`tck-id-message-flow-edge-node-birth-publish-phid-wait`). Omit when no primary host is present. |
 | `useTls`                    | no       | `false`            | Enables TLS on the MQTT connection.                                                                |
 | `caCertificateFile`         | no       | —                  | Broker CA certificate (PEM or DER). Pins server-cert validation to this CA instead of the OS store.|

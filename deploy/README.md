@@ -241,6 +241,21 @@ docker image rm mtconnect-agent-spb:1.0.0
 
 ---
 
+## Persisting the Sparkplug bdSeq counter
+
+Sparkplug's `bdSeq` is how a Host Application tells a live session from a stale NDEATH the broker delivered late: the Will Message registered on a connection and the NBIRTH published on that same connection carry the same value, and it must advance on every connect.
+
+The agent persists it, but by default to a file beside the binary — which **inside a container is lost when the container is recreated**. Every `docker compose down && up` would therefore restart the counter at zero and replay values the host has already seen, so a genuinely new session can be mistaken for the stale one it replaces. The Eclipse Sparkplug TCK catches this as `tck-id-topics-nbirth-bdseq-increment`.
+
+Give it a mounted directory — that is the whole change, and it serves every relay block:
+
+```yaml
+    volumes:
+      - ./state:/app/state          # add alongside the existing mounts
+```
+
+Create `state/` next to `config/` and `devices/` when preparing the site folder. No `agent.config.yaml` change is needed: `/app/state` is where the agent already writes, and each file is named after its Edge Node identity (`bdseq-<groupId>-<nodeId>`), so several `sparkplug-relay` blocks share the directory without sharing a counter. Each file holds a single number and is safe to delete; doing so simply restarts that node's sequence.
+
 ## Splitting a larger fleet across several Sparkplug Edge Nodes
 
 One agent process publishes **every device it loads** under a single Edge Node — the `groupId` + `nodeId` of its `sparkplug-relay` block. That is the right shape for a handful of machines. Past that, three properties of Sparkplug start to couple machines together that have nothing to do with each other:

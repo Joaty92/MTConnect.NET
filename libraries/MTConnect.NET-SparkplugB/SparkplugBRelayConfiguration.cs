@@ -33,14 +33,19 @@ namespace MTConnect.Configurations
         public string PrimaryHostId { get; set; }
 
         /// <summary>
-        /// File carrying the Sparkplug <c>bdSeq</c> counter across restarts. Relative paths resolve
-        /// against the agent binary directory — which inside a container is lost when the container is
-        /// recreated, so every deployment would restart the counter at zero and replay bdSeq values a
-        /// Host Application has already seen, making a new session indistinguishable from the stale
-        /// one it replaces. Point this at a mounted volume to keep the sequence continuous
+        /// Overrides where this relay persists Sparkplug state — currently just the <c>bdSeq</c>
+        /// counter, in a file named after the Edge Node identity so several relay blocks share one
+        /// directory without sharing a counter.
+        /// <para>
+        /// Rarely needed. The default is a <c>state</c> directory beside the agent binary, so mounting
+        /// a volume there is enough and nothing has to be declared per relay block. What matters is
+        /// that the directory outlives the container: otherwise every deployment restarts the counter
+        /// at zero and replays bdSeq values a Host Application has already seen, making a new session
+        /// indistinguishable from the stale one it replaces
         /// (<c>tck-id-topics-nbirth-bdseq-increment</c>).
+        /// </para>
         /// </summary>
-        public string BirthDeathSequencePath { get; set; }
+        public string StateDirectory { get; set; }
 
         /// <summary>Enables TLS on the MQTT connection. Point <see cref="Port"/> at the broker's TLS listener (conventionally 8883).</summary>
         public bool UseTls { get; set; }

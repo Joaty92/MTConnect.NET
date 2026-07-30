@@ -236,6 +236,35 @@ namespace MTConnect.SparkplugB.Tests
         }
 
         [Test]
+        public void Two_edge_nodes_sharing_a_directory_keep_separate_counters()
+        {
+            // A fleet split across several Edge Nodes shares one mounted state directory. If both
+            // relays wrote the same file their counters would interleave and bdSeq would go
+            // non-monotonic on both nodes — the exact confusion bdSeq exists to prevent.
+            var directory = Path.Combine(Path.GetTempPath(), $"bdseq-dir-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var nodeA = new SparkplugBirthDeathSequence(Path.Combine(directory, "bdseq-Factory-Agent1"));
+                var nodeB = new SparkplugBirthDeathSequence(Path.Combine(directory, "bdseq-Factory-Agent2"));
+
+                nodeA.TakeForConnection();
+                nodeA.TakeForConnection();
+                nodeA.TakeForConnection();
+
+                Assert.That(nodeB.TakeForConnection(), Is.EqualTo(0L),
+                    "a second Edge Node must start its own sequence, not inherit the first's");
+
+                Assert.That(new SparkplugBirthDeathSequence(Path.Combine(directory, "bdseq-Factory-Agent1"))
+                    .TakeForConnection(), Is.EqualTo(3L), "the first node's counter must be untouched");
+            }
+            finally
+            {
+                try { Directory.Delete(directory, true); } catch { }
+            }
+        }
+
+        [Test]
         public void No_state_path_keeps_the_counter_in_memory()
         {
             var bdSeq = new SparkplugBirthDeathSequence(null);
