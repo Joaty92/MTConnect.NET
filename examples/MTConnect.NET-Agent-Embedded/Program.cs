@@ -5,10 +5,53 @@ using MTConnect.Devices;
 using MTConnect.Devices.Components;
 using MTConnect.Devices.DataItems;
 using MTConnect.Observations.Events;
+using System.Runtime.InteropServices;
 
 
 // Run Agent Application
 var app = new MTConnectAgentApplication();
+
+// Fork addition: shut the agent down on a termination signal.
+//
+// `docker stop` sends SIGTERM, and nothing in MTConnectAgentApplication listens for it —
+// StopAgent() is reached only from the config-file reload path and the explicit CLI/service
+// stop commands. So the process exited without stopping its modules, and the Sparkplug relay
+// never published its NDEATH or sent a clean DISCONNECT. Every planned shutdown therefore
+// announced itself to consumers as a crash, via the broker's Will Message, and the Sparkplug
+// TCK's session-termination assertions could never execute at all.
+var shutdownLock = new object();
+var alreadyStopped = false;
+
+void Shutdown()
+{
+    lock (shutdownLock)
+    {
+        if (alreadyStopped) return;
+        alreadyStopped = true;
+    }
+
+    app.StopAgent();
+}
+
+// Cancel the default handling so the runtime does not terminate the process before the
+// modules have finished stopping; exiting is then this handler's responsibility.
+using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
+{
+    context.Cancel = true;
+    Shutdown();
+    Environment.Exit(0);
+});
+
+Console.CancelKeyPress += (_, eventArgs) =>
+{
+    eventArgs.Cancel = true;
+    Shutdown();
+    Environment.Exit(0);
+};
+
+// Belt and braces for exit paths that raise neither of the above.
+AppDomain.CurrentDomain.ProcessExit += (_, _) => Shutdown();
+
 app.Run(args, true);
 
 
