@@ -226,9 +226,19 @@ namespace MTConnect.SparkplugB.Transport
             Log(MTConnectLogLevel.Information,
                 $"connected to {_options.Server}:{_options.Port} as {_options.GroupId}/{_options.EdgeNodeId} (bdSeq {_currentBdSeq})");
 
+            // Command topics are subscribed at QoS 1: a command is a directed instruction, not
+            // telemetry, so losing one is not acceptable the way losing a sample is.
             await _client.SubscribeAsync(
                 SparkplugTopic.Node(_options.GroupId, SparkplugMessageType.NCMD, _options.EdgeNodeId),
-                MqttQualityOfServiceLevel.AtMostOnce, cancellationToken);
+                MqttQualityOfServiceLevel.AtLeastOnce, cancellationToken);
+
+            // One wildcard covers every device under this node. This relay is outbound-only and
+            // does not act on DCMD, but a Host Application is entitled to see the subscription —
+            // tck-id-message-flow-device-dcmd-subscribe — and an arriving command is logged rather
+            // than silently dropped, so an operator can see the request was heard and ignored.
+            await _client.SubscribeAsync(
+                SparkplugTopic.Device(_options.GroupId, SparkplugMessageType.DCMD, _options.EdgeNodeId, "+"),
+                MqttQualityOfServiceLevel.AtLeastOnce, cancellationToken);
 
             if (!string.IsNullOrWhiteSpace(_options.PrimaryHostId))
             {
@@ -343,7 +353,17 @@ namespace MTConnect.SparkplugB.Transport
                     return;
                 }
 
-                if (!SparkplugTopic.TryParse(topic, out _, out var messageType, out _, out _)) return;
+                if (!SparkplugTopic.TryParse(topic, out _, out var messageType, out _, out var deviceId)) return;
+
+                if (messageType == SparkplugMessageType.DCMD)
+                {
+                    // Outbound-only relay: MTConnect has no write path back to the machine here, so
+                    // a command cannot be honoured. Say so rather than discarding it silently.
+                    Log(MTConnectLogLevel.Information,
+                        $"DCMD received for {deviceId} and ignored — this relay does not write to devices");
+                    return;
+                }
+
                 if (messageType != SparkplugMessageType.NCMD) return;
 
                 var payload = Decode(body);

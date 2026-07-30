@@ -142,7 +142,10 @@ namespace MTConnect.SparkplugB
                 PrimaryHostId = _config.PrimaryHostId,
                 ReconnectIntervalMs = _config.ReconnectInterval,
                 TlsOptions = BuildTlsOptions(),
-                BirthDeathSequencePath = ResolvePath(BirthDeathSequenceFile)
+                BirthDeathSequencePath = ResolvePath(
+                    string.IsNullOrWhiteSpace(_config.BirthDeathSequencePath)
+                        ? BirthDeathSequenceFile
+                        : _config.BirthDeathSequencePath)
             });
 
             _node.LogReceived += Log;

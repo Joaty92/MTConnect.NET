@@ -32,6 +32,16 @@ namespace MTConnect.Configurations
         /// </summary>
         public string PrimaryHostId { get; set; }
 
+        /// <summary>
+        /// File carrying the Sparkplug <c>bdSeq</c> counter across restarts. Relative paths resolve
+        /// against the agent binary directory — which inside a container is lost when the container is
+        /// recreated, so every deployment would restart the counter at zero and replay bdSeq values a
+        /// Host Application has already seen, making a new session indistinguishable from the stale
+        /// one it replaces. Point this at a mounted volume to keep the sequence continuous
+        /// (<c>tck-id-topics-nbirth-bdseq-increment</c>).
+        /// </summary>
+        public string BirthDeathSequencePath { get; set; }
+
         /// <summary>Enables TLS on the MQTT connection. Point <see cref="Port"/> at the broker's TLS listener (conventionally 8883).</summary>
         public bool UseTls { get; set; }
         /// <summary>Optional path to the broker's CA certificate (PEM or DER). When set, the server certificate is validated against this CA (custom root trust) instead of the OS trust store. Relative paths resolve against the agent binary directory.</summary>
