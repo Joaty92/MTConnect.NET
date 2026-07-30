@@ -55,9 +55,16 @@ namespace MTConnect.SparkplugB
         private Task _processTask;
         private volatile bool _isRunning;
 
-        // How often the maintenance loop checks that the NBIRTH observer is still
-        // connected. Deliberately far shorter than the node's reconnectInterval so the
-        // observer is listening again before the node republishes its NBIRTH.
+        // Capacity of the work queue. Overflow discards the OLDEST entry, which is the
+        // right policy for telemetry — shed stale readings, keep fresh ones — but it means
+        // loss is invisible unless it is counted. See ReportQueueDropsIfDue.
+        private const int WorkQueueCapacity = 10000;
+
+        // How often to report queue overflow, and how often the maintenance loop checks
+        // that the NBIRTH observer is still connected. The latter is deliberately far
+        // shorter than the node's reconnectInterval so the observer is listening again
+        // before the node republishes its NBIRTH.
+        private const int QueueDropReportMs = 30000;
         private const int ObserverMaintenanceMs = 500;
 
         // How long after the node reports Connected to wait for an NBIRTH before forcing
@@ -75,6 +82,15 @@ namespace MTConnect.SparkplugB
         // Cross-thread mirrors of loop-owned state, for the maintenance loop's watchdog.
         private volatile bool _sessionBornSignal;
         private volatile int _nodeConnectedTick;
+
+        // Queue-loss accounting. _enqueued is written from the agent's observation dispatch
+        // path (Interlocked); _processed and the reporting state below are loop-owned.
+        // Dropped is derived rather than observed because BoundedChannelFullMode.DropOldest
+        // gives no callback and leaves TryWrite returning true even as it evicts.
+        private long _enqueued;
+        private long _processed;
+        private long _reportedDrops;
+        private int _lastDropReportTick = Environment.TickCount;
 
         // True once an NBIRTH for the current MQTT session has been seen on the wire.
         // Sparkplug 3.0 tck-id-message-flow-device-birth-publish-nbirth-wait: "The NBIRTH
@@ -134,7 +150,7 @@ namespace MTConnect.SparkplugB
             _cts = new CancellationTokenSource();
             _isRunning = true;
 
-            _work = Channel.CreateBounded<WorkItem>(new BoundedChannelOptions(10000)
+            _work = Channel.CreateBounded<WorkItem>(new BoundedChannelOptions(WorkQueueCapacity)
             {
                 SingleReader = true,
                 // A slow or disconnected broker must never block the agent's
@@ -166,7 +182,7 @@ namespace MTConnect.SparkplugB
                 Log(MTConnectLogLevel.Information, "SparkplugB broker disconnected — will reconnect automatically");
                 // The Sparkplug session is over: no DBIRTH may be published until the
                 // next session's NBIRTH is seen, and every device must be re-born.
-                _work.Writer.TryWrite(WorkItem.ForSessionEnded());
+                Enqueue(WorkItem.ForSessionEnded());
                 return Task.CompletedTask;
             };
 
@@ -179,7 +195,7 @@ namespace MTConnect.SparkplugB
                 if (!args.Metrics.Any(m => string.Equals(m.Name, NodeControlRebirthName, StringComparison.OrdinalIgnoreCase)))
                     return Task.CompletedTask;
                 Log(MTConnectLogLevel.Information, "NCMD Rebirth received — republishing NBIRTH");
-                _work.Writer.TryWrite(WorkItem.ForNodeRebirth());
+                Enqueue(WorkItem.ForNodeRebirth());
                 return Task.CompletedTask;
             };
 
@@ -239,7 +255,7 @@ namespace MTConnect.SparkplugB
             _nodeBirthObserver.ApplicationMessageReceivedAsync += _ =>
             {
                 Log(MTConnectLogLevel.Information, "NBIRTH observed — publishing DBIRTH for all devices");
-                _work?.Writer.TryWrite(WorkItem.ForPublishAllBirths());
+                Enqueue(WorkItem.ForPublishAllBirths());
                 return Task.CompletedTask;
             };
 
@@ -309,7 +325,7 @@ namespace MTConnect.SparkplugB
                         Log(MTConnectLogLevel.Warning,
                             $"node connected but no NBIRTH seen within {NodeBirthWatchdogMs} ms — forcing a rebirth to recover the birth sequence");
                         _nodeConnectedTick = Environment.TickCount;
-                        _work?.Writer.TryWrite(WorkItem.ForNodeRebirth());
+                        Enqueue(WorkItem.ForNodeRebirth());
                     }
                 }
                 catch (OperationCanceledException) { return; }
@@ -360,15 +376,47 @@ namespace MTConnect.SparkplugB
         /// <summary>Handler invoked by the agent when a device is added or rediscovered; queues a DBIRTH for the new device.</summary>
         public Task OnDeviceAdded(IDevice device)
         {
-            if (_isRunning && device != null) _work?.Writer.TryWrite(WorkItem.ForDeviceAdded(device));
+            if (_isRunning && device != null) Enqueue(WorkItem.ForDeviceAdded(device));
             return Task.CompletedTask;
         }
 
         /// <summary>Handler invoked by the agent on every new observation. Non-blocking: the observation is queued and the processing loop batches DDATA per device over a short window; AVAILABILITY observations drive DDEATH / re-DBIRTH transitions.</summary>
         public Task OnObservationAdded(IObservation observation)
         {
-            if (_isRunning && observation != null) _work?.Writer.TryWrite(WorkItem.ForObservation(observation));
+            if (_isRunning && observation != null) Enqueue(WorkItem.ForObservation(observation));
             return Task.CompletedTask;
+        }
+
+        // Single write path, so queue accounting cannot drift from what was actually queued.
+        private void Enqueue(WorkItem item)
+        {
+            if (_work?.Writer.TryWrite(item) == true) Interlocked.Increment(ref _enqueued);
+        }
+
+        // Turns silent queue loss into an operational signal.
+        //
+        // DropOldest evicts without any notification and TryWrite still reports success, so
+        // a relay that cannot keep up simply publishes less with nothing to say about it —
+        // indistinguishable, downstream, from machines that went quiet. Loss is therefore
+        // derived: everything written, minus everything drained, minus what is still queued.
+        private void ReportQueueDropsIfDue()
+        {
+            if (unchecked((uint)(Environment.TickCount - _lastDropReportTick)) < QueueDropReportMs) return;
+            _lastDropReportTick = Environment.TickCount;
+
+            var reader = _work.Reader;
+            var depth = reader.CanCount ? reader.Count : 0;
+            var dropped = Interlocked.Read(ref _enqueued) - _processed - depth;
+            if (dropped < 0) dropped = 0;
+
+            var newDrops = dropped - _reportedDrops;
+            if (newDrops <= 0) return;
+            _reportedDrops = dropped;
+
+            Log(MTConnectLogLevel.Warning,
+                $"observation queue overflow: {newDrops:N0} dropped in the last {QueueDropReportMs / 1000}s " +
+                $"({dropped:N0} total), queue depth {depth:N0}/{WorkQueueCapacity:N0} — " +
+                "the broker or network is not keeping up and Sparkplug updates are being shed");
         }
 
         private async Task ProcessWorkAsync(CancellationToken cancellationToken)
@@ -386,6 +434,7 @@ namespace MTConnect.SparkplugB
 
                     while (reader.TryRead(out var item))
                     {
+                        _processed++;
                         try
                         {
                             await HandleWorkItemAsync(item, pending);
@@ -397,6 +446,7 @@ namespace MTConnect.SparkplugB
                     }
 
                     await FlushAllAsync(pending);
+                    ReportQueueDropsIfDue();
                 }
             }
             catch (OperationCanceledException) { }
