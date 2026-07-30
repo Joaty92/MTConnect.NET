@@ -23,6 +23,15 @@ namespace MTConnect.Configurations
         /// <summary>Delay in milliseconds between reconnect attempts after the broker connection drops.</summary>
         public int ReconnectInterval { get; set; } = 10000;
 
+        /// <summary>
+        /// Sparkplug Primary Host Application ID this edge node coordinates with. When set, the node
+        /// waits for that host's <c>STATE</c> to report online before publishing NBIRTH, and treats the
+        /// host going offline as a reason to end its session — the behaviour Sparkplug calls Primary Host
+        /// awareness. Leave unset (the default) when no primary host is present, in which case NBIRTH is
+        /// published as soon as the broker connection is up.
+        /// </summary>
+        public string PrimaryHostId { get; set; }
+
         /// <summary>Enables TLS on the MQTT connection. Point <see cref="Port"/> at the broker's TLS listener (conventionally 8883).</summary>
         public bool UseTls { get; set; }
         /// <summary>Optional path to the broker's CA certificate (PEM or DER). When set, the server certificate is validated against this CA (custom root trust) instead of the OS trust store. Relative paths resolve against the agent binary directory.</summary>

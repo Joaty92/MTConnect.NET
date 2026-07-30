@@ -210,6 +210,7 @@ The HTTP adapter is most often used to chain agents — a regional aggregator ag
     username: mtconnect            # optional broker auth.
     password: <secret>
     reconnectInterval: 10000       # delay between reconnect attempts (ms).
+    primaryHostId: SCADA-1         # optional; wait for this host's STATE before NBIRTH.
 
     useTls: true                   # optional; enable TLS.
     caCertificateFile: certs/broker-ca.crt   # optional; pin the broker CA (PEM or DER).
@@ -218,6 +219,10 @@ The HTTP adapter is most often used to chain agents — a regional aggregator ag
 ```
 
 All devices share one edge-node identity (`groupId` + `nodeId`). DDATA is batched per device over a ~100 ms window, and the agent's observation path only pays a non-blocking enqueue, so a slow broker never stalls ingestion. `allowUntrustedCertificates: true` disables server-certificate validation — bench testing only. Relative certificate paths resolve against the agent binary directory.
+
+Numeric (`SAMPLE`) metrics with no reading — unavailable, or a value that will not parse — publish Sparkplug's `is_null` flag rather than a value, keeping the `Double` type their DBIRTH declared without fabricating a `0.0` that a historian would trend as real data. `EVENT` and `CONDITION` metrics keep MTConnect's `UNAVAILABLE` literal, which a `String` metric can carry honestly. A device model that declares no `AVAILABILITY` DataItem is treated as available with a warning logged once, rather than being left permanently unborn with its observations silently discarded.
+
+No DBIRTH is published until an NBIRTH for the current MQTT session has been observed on the wire, satisfying `tck-id-message-flow-device-birth-publish-nbirth-wait` and keeping `seq` contiguous from the NBIRTH onward. `primaryHostId` additionally defers NBIRTH until the named Primary Host Application reports online via `STATE`. The module ReadMe covers why this needs a loopback observer rather than the library's `Connected` event.
 
 ## OPC UA adapter
 

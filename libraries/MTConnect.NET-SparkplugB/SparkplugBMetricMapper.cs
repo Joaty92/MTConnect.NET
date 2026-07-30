@@ -16,7 +16,7 @@ namespace MTConnect.SparkplugB
     /// <summary>Translates MTConnect <see cref="IObservation"/> and <see cref="IDataItem"/> instances into Sparkplug B <see cref="Metric"/> payloads.</summary>
     public static class SparkplugBMetricMapper
     {
-        /// <summary>Converts an MTConnect observation into a Sparkplug B <see cref="Metric"/>; scalar SAMPLEs are coerced to <see cref="DataType.Double"/> to match the DBIRTH declaration, while EVENTs, CONDITIONs (emitted as their level) and the set-valued representations (serialised as <c>[key]=value</c> pairs) are emitted as <see cref="DataType.String"/>.</summary>
+        /// <summary>Converts an MTConnect observation into a Sparkplug B <see cref="Metric"/>; scalar SAMPLEs are coerced to <see cref="DataType.Double"/> to match the DBIRTH declaration — publishing <c>is_null</c> rather than a value when there is no reading — while EVENTs, CONDITIONs (emitted as their level) and the set-valued representations (serialised as <c>[key]=value</c> pairs) are emitted as <see cref="DataType.String"/>.</summary>
         public static Metric ToMetric(IObservation observation)
         {
             var name = BuildObservationMetricName(observation);
@@ -33,10 +33,13 @@ namespace MTConnect.SparkplugB
 
             if (isDouble)
             {
-                // Always return Double for scalar SAMPLEs to match DBIRTH declaration
+                // Always return Double for scalar SAMPLEs to match DBIRTH declaration.
+                // A value that will not parse is a modelling error, not a reading of
+                // zero — publish is_null so it surfaces as missing data downstream
+                // instead of masquerading as a plausible 0.0.
                 return double.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var d)
                     ? new Metric(name, DataType.Double, d, timestamp)
-                    : new Metric(name, DataType.Double, 0.0, timestamp);
+                    : NullMetric(name, DataType.Double, timestamp);
             }
 
             return new Metric(name, DataType.String, raw, timestamp);
@@ -52,10 +55,25 @@ namespace MTConnect.SparkplugB
             && representation != DataItemRepresentation.TABLE
             && representation != DataItemRepresentation.TIME_SERIES;
 
+        // Numeric and string metrics express "no reading" differently, and the
+        // asymmetry is deliberate. A Double metric has no in-band way to say
+        // "unavailable", so it publishes Sparkplug's out-of-band is_null flag —
+        // sending 0.0 instead would land in a historian as a genuine zero, which
+        // an axis position or a spindle load reaching zero is indistinguishable
+        // from. A String metric can carry MTConnect's own UNAVAILABLE literal
+        // without lying, and that literal is a state operators recognise and
+        // dashboards key on, so it is kept rather than flattened to is_null.
         private static Metric UnavailableMetric(string name, bool isDouble, DateTimeOffset timestamp) =>
             isDouble
-                ? new Metric(name, DataType.Double, 0.0, timestamp)
-                : new Metric(name, DataType.String, "UNAVAILABLE", timestamp);
+                ? NullMetric(name, DataType.Double, timestamp)
+                : new Metric(name, DataType.String, Observation.Unavailable, timestamp);
+
+        // Sparkplug carries "no value" out of band via the metric's is_null flag.
+        // SparkplugNet has no public setter for it; passing a null value to the
+        // Metric constructor is the supported way to set it, and the declared
+        // DataType is still preserved on the wire so the DBIRTH type contract holds.
+        private static Metric NullMetric(string name, DataType dataType, DateTimeOffset timestamp) =>
+            new Metric(name, dataType, null, timestamp);
 
         // Each Category/Representation stores its state under a different value key.
         // Reading ValueKeys.Result unconditionally returns null for CONDITIONs — whose
@@ -153,20 +171,24 @@ namespace MTConnect.SparkplugB
                 // stale values in downstream historians at every (re)birth/reconnect.
                 var ts = obs != null ? new DateTimeOffset(obs.Timestamp, TimeSpan.Zero) : now;
                 var hasValue = rawValue != null
-                    && !string.Equals(rawValue, "UNAVAILABLE", StringComparison.OrdinalIgnoreCase);
+                    && !string.Equals(rawValue, Observation.Unavailable, StringComparison.OrdinalIgnoreCase);
 
                 Metric metric;
                 if (IsDoubleMetric(di.Category, di.Representation))
                 {
-                    var value = 0.0;
-                    if (hasValue && double.TryParse(
-                            rawValue, NumberStyles.Any, CultureInfo.InvariantCulture, out var d))
-                        value = d;
-                    metric = new Metric(metricName, DataType.Double, value, ts);
+                    // A device that has never reported (no adapter connected yet, or
+                    // the machine is switched off) births every one of its SAMPLEs
+                    // here. Declaring them 0.0 would tell a historian that every axis
+                    // is parked at the origin and every load is zero; is_null says
+                    // there is no reading, which is what is actually true.
+                    metric = hasValue && double.TryParse(
+                            rawValue, NumberStyles.Any, CultureInfo.InvariantCulture, out var d)
+                        ? new Metric(metricName, DataType.Double, d, ts)
+                        : NullMetric(metricName, DataType.Double, ts);
                 }
                 else
                 {
-                    var value = hasValue ? rawValue : "UNAVAILABLE";
+                    var value = hasValue ? rawValue : Observation.Unavailable;
                     metric = new Metric(metricName, DataType.String, value, ts);
                 }
 
