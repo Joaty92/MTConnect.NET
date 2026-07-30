@@ -50,23 +50,34 @@ namespace MTConnect.SparkplugB.Transport
             _next = Load();
         }
 
-        /// <summary>The bdSeq the next connection will use; also the value its Will Message must carry.</summary>
-        public long Current
+        /// <summary>The bdSeq a connection taken right now would use.</summary>
+        public long Peek
         {
             get { lock (_lock) return _next; }
         }
 
         /// <summary>
-        /// Advances to the next connection's bdSeq and persists it. Call once per MQTT CONNECT, before
-        /// building that connection's Will Message, so the will and the NBIRTH agree.
+        /// Takes the bdSeq for a new MQTT connection and records the following value as next.
+        /// <para>
+        /// Call exactly once per CONNECT, before building that connection's Will Message, and reuse
+        /// the returned value for both the will and the NBIRTH published on the same connection —
+        /// they have to match for a Host Application to pair them.
+        /// </para>
+        /// <para>
+        /// The store deliberately holds the next <em>unused</em> value rather than the one in use.
+        /// Recording the value currently in flight would let a process that restarts hand out that
+        /// same value again, so a genuinely new session would be indistinguishable from the stale one
+        /// it replaces — the precise confusion bdSeq exists to prevent.
+        /// </para>
         /// </summary>
-        public long Advance()
+        public long TakeForConnection()
         {
             lock (_lock)
             {
+                var taken = _next;
                 _next = (_next + 1) % Wrap;
                 Save(_next);
-                return _next;
+                return taken;
             }
         }
 

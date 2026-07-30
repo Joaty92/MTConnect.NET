@@ -164,42 +164,53 @@ namespace MTConnect.SparkplugB.Tests
         [Test]
         public void First_connection_uses_bdSeq_zero()
         {
-            // "MUST start at zero" — Current is what the first CONNECT's will and NBIRTH carry.
-            Assert.That(new SparkplugBirthDeathSequence().Current, Is.EqualTo(0L));
+            // "MUST start at zero" — this is what the first CONNECT's will and NBIRTH carry.
+            Assert.That(new SparkplugBirthDeathSequence().TakeForConnection(), Is.EqualTo(0L));
         }
 
         [Test]
-        public void Each_connection_advances_by_one()
+        public void Each_connection_takes_the_next_value()
         {
             var bdSeq = new SparkplugBirthDeathSequence();
-            Assert.That(bdSeq.Advance(), Is.EqualTo(1L));
-            Assert.That(bdSeq.Advance(), Is.EqualTo(2L));
-            Assert.That(bdSeq.Current, Is.EqualTo(2L));
+            Assert.That(bdSeq.TakeForConnection(), Is.EqualTo(0L));
+            Assert.That(bdSeq.TakeForConnection(), Is.EqualTo(1L));
+            Assert.That(bdSeq.TakeForConnection(), Is.EqualTo(2L));
         }
 
         [Test]
         public void bdSeq_wraps_255_back_to_zero()
         {
             var bdSeq = new SparkplugBirthDeathSequence();
-            for (var i = 0; i < 255; i++) bdSeq.Advance();
+            for (var i = 0; i < 255; i++) bdSeq.TakeForConnection();
 
-            Assert.That(bdSeq.Current, Is.EqualTo(255L));
-            Assert.That(bdSeq.Advance(), Is.EqualTo(0L));
+            Assert.That(bdSeq.TakeForConnection(), Is.EqualTo(255L), "255 is a legal bdSeq");
+            Assert.That(bdSeq.TakeForConnection(), Is.EqualTo(0L), "256 must wrap, not overflow");
         }
 
         [Test]
-        public void bdSeq_survives_a_process_restart()
+        public void A_restart_never_reuses_the_value_the_previous_process_was_using()
         {
-            // The reason persistence exists: a restarted node beginning again at zero would replay
-            // values the host has already seen, so a new session could look like the stale one.
+            // The bug this guards: if the store recorded the value in flight rather than the next
+            // unused one, a restarted process would hand out that same value again — making a new
+            // session indistinguishable from the stale one it replaces, which is the exact confusion
+            // bdSeq exists to prevent.
             var first = new SparkplugBirthDeathSequence(_statePath);
-            first.Advance();
-            first.Advance();
+            Assert.That(first.TakeForConnection(), Is.EqualTo(0L));
+            Assert.That(first.TakeForConnection(), Is.EqualTo(1L));
 
             var afterRestart = new SparkplugBirthDeathSequence(_statePath);
 
-            Assert.That(afterRestart.Current, Is.EqualTo(2L));
-            Assert.That(afterRestart.Advance(), Is.EqualTo(3L));
+            Assert.That(afterRestart.TakeForConnection(), Is.EqualTo(2L),
+                "must continue past the value the previous process last used, not repeat it");
+        }
+
+        [Test]
+        public void A_restart_after_a_single_connection_continues_rather_than_repeating()
+        {
+            var first = new SparkplugBirthDeathSequence(_statePath);
+            Assert.That(first.TakeForConnection(), Is.EqualTo(0L));
+
+            Assert.That(new SparkplugBirthDeathSequence(_statePath).TakeForConnection(), Is.EqualTo(1L));
         }
 
         [Test]
@@ -212,8 +223,8 @@ namespace MTConnect.SparkplugB.Tests
             bdSeq.PersistenceFailed += reason => reported = reason;
 
             // Constructed without throwing; the relay must start even with an unusable store.
-            Assert.That(bdSeq.Current, Is.EqualTo(0L));
-            Assert.That(bdSeq.Advance(), Is.EqualTo(1L));
+            Assert.That(bdSeq.TakeForConnection(), Is.EqualTo(0L));
+            Assert.That(bdSeq.TakeForConnection(), Is.EqualTo(1L));
             Assert.That(reported, Is.Null, "the load already happened in the constructor");
         }
 
@@ -221,14 +232,14 @@ namespace MTConnect.SparkplugB.Tests
         public void An_out_of_range_stored_value_is_ignored()
         {
             File.WriteAllText(_statePath, "9999");
-            Assert.That(new SparkplugBirthDeathSequence(_statePath).Current, Is.EqualTo(0L));
+            Assert.That(new SparkplugBirthDeathSequence(_statePath).TakeForConnection(), Is.EqualTo(0L));
         }
 
         [Test]
         public void No_state_path_keeps_the_counter_in_memory()
         {
             var bdSeq = new SparkplugBirthDeathSequence(null);
-            Assert.That(bdSeq.Advance(), Is.EqualTo(1L));
+            Assert.That(bdSeq.TakeForConnection(), Is.EqualTo(0L));
         }
     }
 }
