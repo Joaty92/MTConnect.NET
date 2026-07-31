@@ -24,8 +24,8 @@ starter-kit/
 #    Also copy the shipped mtconnect-agent-spb-<version>.tar to a convenient location.
 
 # 2. Load the Docker image (only needed once per version).
-docker load -i mtconnect-agent-spb-1.0.0.tar
-# → "Loaded image: mtconnect-agent-spb:1.0.0"
+docker load -i mtconnect-agent-spb-1.1.0.tar
+# → "Loaded image: mtconnect-agent-spb:1.1.0"
 
 # 3. Edit config\agent.config.yaml for this site — uncomment the module blocks you need
 #    (mqtt-relay, sparkplug-relay, opcua-adapter, shdr-adapter, haas-ethernet) and fill in

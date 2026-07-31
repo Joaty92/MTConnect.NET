@@ -18,7 +18,7 @@ Think of a Docker image like a **flatpack furniture box**:
 - On the target machine you **unpack** the box into Docker's cupboard (`docker load`).
 - After unpacking, the box (the `.tar` file) is empty and can be thrown away or kept as a backup — Docker now knows about the image and refers to it by **name + version tag**, not by file path.
 
-The compose file at the target says "give me the box called `mtconnect-agent-spb:1.0.0`" — Docker looks in its cupboard, finds it, starts a container from it. **The compose file never mentions the `.tar` file path.** Once loaded, the `.tar` is irrelevant.
+The compose file at the target says "give me the box called `mtconnect-agent-spb:1.1.0`" — Docker looks in its cupboard, finds it, starts a container from it. **The compose file never mentions the `.tar` file path.** Once loaded, the `.tar` is irrelevant.
 
 Now the actual steps.
 
@@ -30,27 +30,38 @@ You only do this **once per version**. Do it again when the source code changes 
 
 **Prerequisite:** you have this repo cloned somewhere, and a "site config folder" alongside it (see [Phase 2](#phase-2--prepare-the-site-folder-still-on-your-dev-machine)) — a folder containing a `docker-compose.yml` with `build: context: <path-to-this-repo>` and `dockerfile: Dockerfile`. If you don't have one yet, use [`deploy/starter-kit/`](starter-kit/) as the template.
 
+Give that dev-machine compose file an `image:` key alongside its `build:` block, naming the version it produces:
+
+```yaml
+    build:
+      context: <path-to-this-repo>
+      dockerfile: Dockerfile
+    image: mtconnect-agent-spb:1.1.0
+```
+
+With both keys present, `docker compose build` tags the result directly. Without the `image:` key Compose invents a name from the folder (`<folder-name>-mtconnect-agent-spb:latest`) and you have to retag by hand — and guess what the folder-derived name was. Bumping a release is then a one-line edit here.
+
 ```powershell
 # 1. Build the image from source, from your site config folder.
-#    That folder's docker-compose.yml references the Dockerfile in this repo.
+#    That folder's docker-compose.yml references the Dockerfile in this repo,
+#    and its image: key names the output.
 cd <path-to-your-site-config-folder>
 docker compose build --no-cache
 
-# 2. Give it a distributable name.
-#    Compose auto-names the image with an ugly folder-based name.
-#    Retag it as "mtconnect-agent-spb" with a version.
-docker tag <folder-name>-mtconnect-agent-spb:latest mtconnect-agent-spb:1.0.0
-docker tag <folder-name>-mtconnect-agent-spb:latest mtconnect-agent-spb:latest
+# 2. Confirm it built under the versioned name.
+docker images mtconnect-agent-spb
 
 # 3. Pack the image into a shippable .tar file, into this repo's deploy/ folder.
 cd <path-to-this-repo>/deploy
-docker save -o mtconnect-agent-spb-1.0.0.tar mtconnect-agent-spb:1.0.0 mtconnect-agent-spb:latest
+docker save -o mtconnect-agent-spb-1.1.0.tar mtconnect-agent-spb:1.1.0
 
 # 4. Confirm size (typically ~40-60 MB — Docker compresses well).
-ls -lh mtconnect-agent-spb-1.0.0.tar
+ls -lh mtconnect-agent-spb-1.1.0.tar
 ```
 
-After this, `<repo>/deploy/mtconnect-agent-spb-1.0.0.tar` is the **one artefact from the source repo** that goes to the target. It's gitignored — ship it out-of-band (SFTP / USB / private artefact store).
+**Save the versioned tag only — never `:latest`.** A `.tar` containing `:latest` moves the target's `latest` to whatever you happened to ship, which makes "which version is running here?" unanswerable without inspecting image IDs, and leaves nothing to roll back to.
+
+After this, `<repo>/deploy/mtconnect-agent-spb-1.1.0.tar` is the **one artefact from the source repo** that goes to the target. It's gitignored — ship it out-of-band (SFTP / USB / private artefact store).
 
 ---
 
@@ -88,7 +99,7 @@ Whichever route, the resulting site folder needs to look like this:
 
 ```
 SiteA/
-├── docker-compose.yml            ← references image: mtconnect-agent-spb:1.0.0, no build: block
+├── docker-compose.yml            ← references image: mtconnect-agent-spb:1.1.0, no build: block
 ├── config/
 │   ├── agent.config.yaml         ← edited for this site
 │   └── NLog.config
@@ -103,7 +114,7 @@ SiteA/
 
 **Two things travel to the target:**
 
-1. `<repo>/deploy/mtconnect-agent-spb-1.0.0.tar` (the packed image — ~46 MB)
+1. `<repo>/deploy/mtconnect-agent-spb-1.1.0.tar` (the packed image — ~46 MB)
 2. `<ship-staging>/SiteA/` (the site config folder — a few KB; zip it up first)
 
 Ship however you like — USB drive, SFTP, email, S3 bucket, shared drive. Nothing about them is Docker-specific during transit; they're just files.
@@ -120,15 +131,14 @@ The target machine has **Docker installed** but no source code and no images yet
 #    ├── SiteA/                              ← the unzipped site config folder
 #    │   ├── docker-compose.yml
 #    │   ├── config/  devices/  profiles/  logs/
-#    └── mtconnect-agent-spb-1.0.0.tar        ← put it wherever's reachable
+#    └── mtconnect-agent-spb-1.1.0.tar        ← put it wherever's reachable
 
 # 2. Unpack the image into Docker's internal storage.
 #    You can be in ANY folder for this step — the -i flag takes the .tar path.
 cd <install-root>
-docker load -i mtconnect-agent-spb-1.0.0.tar
+docker load -i mtconnect-agent-spb-1.1.0.tar
 # You'll see:
-#   Loaded image: mtconnect-agent-spb:1.0.0
-#   Loaded image: mtconnect-agent-spb:latest
+#   Loaded image: mtconnect-agent-spb:1.1.0
 #
 # Docker has now copied the image into its own store. The .tar file is no
 # longer needed. You can delete it, keep it as a backup, whatever — Docker
@@ -138,7 +148,7 @@ docker load -i mtconnect-agent-spb-1.0.0.tar
 docker images mtconnect-agent-spb
 
 # 4. Start the agent — from INSIDE the site config folder.
-#    The compose file references the image by name (mtconnect-agent-spb:1.0.0),
+#    The compose file references the image by name (mtconnect-agent-spb:1.1.0),
 #    and mounts the config/devices/profiles folders from THIS folder.
 cd <install-root>/SiteA
 docker compose up -d
@@ -150,7 +160,7 @@ docker logs --follow mtconnect-agent-spb
 
 Once it's up, browse `http://<target-server>:5003/probe` to confirm the MTConnect endpoint is live.
 
-**The `.tar` file is now optional.** You can delete `<install-root>/mtconnect-agent-spb-1.0.0.tar` and everything keeps working. Docker only cares about what's in its internal store now. Keep it around only if you want an offline backup for a rainy day.
+**The `.tar` file is now optional.** You can delete `<install-root>/mtconnect-agent-spb-1.1.0.tar` and everything keeps working. Docker only cares about what's in its internal store now. Keep it around only if you want an offline backup for a rainy day.
 
 ---
 
@@ -167,12 +177,13 @@ Say Site B has:
 # Assume this repo is cloned at <repo>, and you have a working site folder <site>.
 
 # Build + pack the image (only if you haven't already for this version)
+# <site>/docker-compose.yml carries image: mtconnect-agent-spb:1.1.0, so the
+# build comes out already named — no retag step.
 cd <site>
 docker compose build --no-cache
-docker tag <folder-name>-mtconnect-agent-spb:latest mtconnect-agent-spb:1.0.0
 
 cd <repo>/deploy
-docker save -o mtconnect-agent-spb-1.0.0.tar mtconnect-agent-spb:1.0.0 mtconnect-agent-spb:latest
+docker save -o mtconnect-agent-spb-1.1.0.tar mtconnect-agent-spb:1.1.0
 
 # Prepare Site B's folder from the starter-kit
 cp -r <repo>/deploy/starter-kit <ship>/SiteB
@@ -187,7 +198,7 @@ Compress-Archive -Path <ship>/SiteB -DestinationPath <ship>/SiteB.zip
 ```
 
 Now `<ship>/` contains:
-- `mtconnect-agent-spb-1.0.0.tar`  (from `<repo>/deploy/`)
+- `mtconnect-agent-spb-1.1.0.tar`  (from `<repo>/deploy/`)
 - `SiteB.zip`                     (the site config folder, zipped)
 
 Ship both to Site B via SFTP / USB / whatever.
@@ -197,14 +208,14 @@ Ship both to Site B via SFTP / USB / whatever.
 ```powershell
 # Someone puts the shipped files at <install-root>\, e.g. C:\Factories\
 # C:\Factories\
-#   ├── mtconnect-agent-spb-1.0.0.tar
+#   ├── mtconnect-agent-spb-1.1.0.tar
 #   └── SiteB.zip
 
 cd C:\Factories
 Expand-Archive SiteB.zip .
 
 # Load the image
-docker load -i mtconnect-agent-spb-1.0.0.tar
+docker load -i mtconnect-agent-spb-1.1.0.tar
 
 # Start the agent
 cd SiteB
@@ -227,16 +238,16 @@ Same process, minus preparing the site folder from scratch:
 # On the target — ship the new .tar to the target machine first, then:
 cd <install-root>
 docker compose -f SiteB\docker-compose.yml down    # stop old container
-docker load -i mtconnect-agent-spb-1.0.1.tar        # load new image
+docker load -i mtconnect-agent-spb-1.1.1.tar        # load new image
 # Edit SiteB\docker-compose.yml, change the image tag:
-#   image: mtconnect-agent-spb:1.0.1     (was 1.0.0)
+#   image: mtconnect-agent-spb:1.1.1     (was 1.1.0)
 docker compose -f SiteB\docker-compose.yml up -d   # start new container
 ```
 
 Optionally clean up the old image afterwards:
 
 ```powershell
-docker image rm mtconnect-agent-spb:1.0.0
+docker image rm mtconnect-agent-spb:1.1.0
 ```
 
 ---
@@ -295,7 +306,7 @@ Two caveats before you split:
 No. Once `docker load` finishes, Docker has copied the image into its internal storage. The `.tar` is just a transport format. Delete it, back it up, whatever — the container will keep running.
 
 **Q: What does the `image:` field in `docker-compose.yml` actually point at?**
-The image's **name and tag** in Docker's internal store (e.g. `mtconnect-agent-spb:1.0.0`). Not a file path. When compose starts a container, Docker looks up that name+tag in its internal store and uses the image it finds there. If it doesn't find it, you get "image not found" — that's when you go back and run `docker load`.
+The image's **name and tag** in Docker's internal store (e.g. `mtconnect-agent-spb:1.1.0`). Not a file path. When compose starts a container, Docker looks up that name+tag in its internal store and uses the image it finds there. If it doesn't find it, you get "image not found" — that's when you go back and run `docker load`.
 
 **Q: What if I lose the source code but still have the `.tar`?**
 You can still deploy from the `.tar` forever. It's fully self-contained — the compiled agent, .NET runtime, OS layer, all of it. Losing the source means you can't build a **new** version, but existing images keep working.
@@ -304,7 +315,7 @@ You can still deploy from the `.tar` forever. It's fully self-contained — the 
 ```powershell
 docker ps --format "table {{.Names}}\t{{.Image}}"
 ```
-Look at the `Image` column. If it says `mtconnect-agent-spb:1.0.0`, that's the version.
+Look at the `Image` column. If it says `mtconnect-agent-spb:1.1.0`, that's the version.
 
 **Q: Where do the container's logs go?**
 Two places:
@@ -314,8 +325,8 @@ Two places:
 **Q: Can I have multiple site configs on the same target machine?**
 Yes — as long as they don't collide on host ports. Each site config folder is independent; each `docker compose up -d` from a different folder creates a differently-named container. Change the port mapping (`5003:5000` → `5004:5000` for the second one) so they don't fight.
 
-**Q: The `image:` tag in my compose file is `1.0.0`, but the `.tar` I loaded contained `1.0.1`. What happens?**
-`docker compose up -d` will fail with "no such image" because the tag `1.0.0` isn't in Docker's store — only `1.0.1` is. Fix: either edit the compose file to say `1.0.1`, or ship the correct `.tar` for `1.0.0`.
+**Q: The `image:` tag in my compose file is `1.1.0`, but the `.tar` I loaded contained `1.1.1`. What happens?**
+`docker compose up -d` will fail with "no such image" because the tag `1.1.0` isn't in Docker's store — only `1.1.1` is. Fix: either edit the compose file to say `1.1.1`, or ship the correct `.tar` for `1.1.0`.
 
 ---
 
