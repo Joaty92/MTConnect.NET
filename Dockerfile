@@ -1,4 +1,8 @@
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+# SDK 10 is required even though the published output targets net8.0: the
+# libraries multi-target up to net10.0 in Release, and the SDK evaluates every
+# referenced project's full TargetFrameworks list during restore regardless of
+# the -f passed to publish. SDK 9 fails with NETSDK1045 on the net10.0 entries.
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY . .
 RUN dotnet publish examples/MTConnect.NET-Agent-Embedded/MTConnect.NET-Agent-Embedded.csproj \

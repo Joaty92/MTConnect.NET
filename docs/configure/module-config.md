@@ -210,6 +210,7 @@ The HTTP adapter is most often used to chain agents — a regional aggregator ag
     username: mtconnect            # optional broker auth.
     password: <secret>
     reconnectInterval: 10000       # delay between reconnect attempts (ms).
+    primaryHostId: SCADA-1         # optional; wait for this host's STATE before NBIRTH.
 
     useTls: true                   # optional; enable TLS.
     caCertificateFile: certs/broker-ca.crt   # optional; pin the broker CA (PEM or DER).
@@ -218,6 +219,10 @@ The HTTP adapter is most often used to chain agents — a regional aggregator ag
 ```
 
 All devices share one edge-node identity (`groupId` + `nodeId`). DDATA is batched per device over a ~100 ms window, and the agent's observation path only pays a non-blocking enqueue, so a slow broker never stalls ingestion. `allowUntrustedCertificates: true` disables server-certificate validation — bench testing only. Relative certificate paths resolve against the agent binary directory.
+
+Numeric (`SAMPLE`) metrics with no reading — unavailable, or a value that will not parse — publish Sparkplug's `is_null` flag rather than a value, keeping the `Double` type their DBIRTH declared without fabricating a `0.0` that a historian would trend as real data. `EVENT` and `CONDITION` metrics keep MTConnect's `UNAVAILABLE` literal, which a `String` metric can carry honestly. A device model that declares no `AVAILABILITY` DataItem is treated as available with a warning logged once, rather than being left permanently unborn with its observations silently discarded.
+
+This module owns its Sparkplug B implementation — MQTT session, topics, `seq`/`bdSeq`, Will Message and payload encoding — so NBIRTH precedes every DBIRTH by construction rather than by observation, satisfying `tck-id-message-flow-device-birth-publish-nbirth-wait`. `primaryHostId` defers NBIRTH until the named Primary Host Application reports online via `STATE`. Persisted `bdSeq` lives in a `state` directory beside the agent binary, one file per Edge Node identity, so mounting a volume at `/app/state` is all that is needed however many relay blocks are configured — there is nothing to declare per block. Without it every deployment restarts the counter at zero and replays values a Host Application has already seen. `stateDirectory` overrides the location if required. The module ReadMe covers the QoS and retain rules per message type, and the TCK results.
 
 ## OPC UA adapter
 
@@ -239,7 +244,8 @@ All devices share one edge-node identity (`groupId` + `nodeId`). DDATA is batche
     # ignoreTimestamps: false      # per-adapter override of the agent-wide ignoreTimestamps.
 ```
 
-One block per machine. On session loss every mapped data item flips to `UNAVAILABLE`; after reconnect all mapped nodes are re-read so unchanged values recover immediately instead of waiting for their next change. The optional `ignoreTimestamps` key overrides the agent-wide setting per adapter - unset inherits it, `true` re-stamps this device with the agent clock (dropping the controller's source timestamps), `false` keeps source time even when the agent-wide flag is on. By default any server certificate is accepted (`acceptUntrustedServerCertificate: true`) - the channel is encrypted but the server is not authenticated; set it to `false` and place the server certificate in the agent's `pki/trusted` store to close that gap. Startup fails fast if a security policy is configured but the server offers no secured endpoint.
+One block per machine. On session loss every mapped data item flips to `UNAVAILABLE`; after reconnect all mapped nodes are re-read so unchanged values recover immediately instead of waiting for their next change. The optional `ignoreTimestamps` key overrides the agent-wide setting per adapter - unset inherits it, `true` re-stamps this device with the agent clock (dropping the controller's source timestamps), `false` keeps source time even when the agent-wide flag is on.
+ By default any server certificate is accepted (`acceptUntrustedServerCertificate: true`) - the channel is encrypted but the server is not authenticated; set it to `false` and place the server certificate in the agent's `pki/trusted` store to close that gap. Startup fails fast if a security policy is configured but the server offers no secured endpoint.
 
 ### Authoring profiles: the OPC UA profile GUI
 

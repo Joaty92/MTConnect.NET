@@ -4,13 +4,62 @@
 
 In-process agent module that bridges every device on this agent to **Sparkplug B** over MQTT. Each MTConnect device becomes a Sparkplug "Device" under one shared Edge Node identity; observations are republished as `DDATA` as they land in the agent buffer.
 
+## Sparkplug transport
+
+This module owns its Sparkplug B implementation rather than wrapping a client library. The MQTT session, topic construction, both sequence counters, the Will Message and the payload encoding all live in `MTConnect.NET-SparkplugB` under `Transport/` and `Payload/`.
+
+The payload contract is hand-written from the specification's normative payload section rather than generated. Eclipse publishes `sparkplug_b.proto` under EPL-2.0, and generating from it would pull an EPL file and its output into this MIT repository. Field numbers were checked one by one against that `.proto` without copying it, and a test encodes with our contract and decodes with an independently generated model — two independently written contracts agreeing catches a wrong field number, which round-tripping against ourselves cannot.
+
+**Birth ordering is structural.** Sparkplug 3.0 `tck-id-message-flow-device-birth-publish-nbirth-wait` requires that "the NBIRTH message MUST have been sent within the current MQTT session prior to a DBIRTH being published", and `...nbirth-payload-seq` makes each following message's `seq` exactly one more than the last. Getting this wrong is not cosmetic: a Host Application has no session to attach pre-NBIRTH messages to, so every device born early is invisible until a reorder timeout triggers a rebirth — and that timeout is only a SHOULD in the spec. The edge node publishes NBIRTH itself and awaits it before raising the event that drives device births, so a DBIRTH cannot precede its NBIRTH by construction.
+
+Per the specification, and confirmed against the Eclipse sources rather than assumed:
+
+| Message | QoS | Retain | Sequence number |
+| --- | --- | --- | --- |
+| NBIRTH, DBIRTH, NDATA, DDATA, DDEATH | 0 | false | yes, +1 each, wrapping 255 → 0 |
+| NDEATH (registered as the Will Message) | 1 | false | **none** — `tck-id-payloads-ndeath-seq` |
+| NCMD / DCMD subscriptions | 1 | — | — |
+
+**`bdSeq`** is what lets a Host Application tell a live session from a stale NDEATH the broker delivered late: the Will registered on a connection and the NBIRTH published on that same connection carry the same value, and it advances on every CONNECT. It is persisted, because a restarted node beginning again at zero would replay values the host has already seen — see [Persisting bdSeq](#persisting-bdseq), which matters in a container.
+
+**Primary Host awareness.** With `primaryHostId` set, the node subscribes to `spBv1.0/STATE/{hostId}` and withholds NBIRTH until that host reports online, ending the session if it goes offline (`tck-id-message-flow-edge-node-birth-publish-phid-wait`).
+
+**Shutdown is intentional.** On stop the node publishes NDEATH and then sends a clean MQTT DISCONNECT. On MQTT 3.1.1 a clean DISCONNECT suppresses the Will, so a node that merely disconnects announces nothing, and one that is killed announces its shutdown as a crash — neither lets a consumer tell a planned stop from a failure.
+
+**DCMD** is subscribed for every device, but this relay is outbound-only: MTConnect offers no write path back to the machine here, so an arriving command is logged and explicitly ignored rather than silently dropped.
+
+## Persisting bdSeq
+
+`bdSeq` has to keep advancing across restarts, so the agent writes it to a `state` directory beside its binary. Inside a container that is lost on recreation, so **mount a volume there** — one line, and nothing to declare per relay block:
+
+```yaml
+volumes:
+  - ./state:/app/state
+```
+
+One directory serves any number of `sparkplug-relay` blocks: each file is named after its Edge Node identity (`bdseq-<groupId>-<nodeId>`), so two Edge Nodes never share a counter. Override the location with `stateDirectory` only if the default does not suit.
+
+Without the mount the relay still runs — the counter simply restarts at zero on each deployment, replaying values a Host Application has already seen.
+
+## Conformance
+
+Validated against the Eclipse Sparkplug TCK 3.0.0, driven over MQTT (the web console is optional — it only publishes `NEW_TEST` to `SPARKPLUG_TCK/TEST_CONTROL`):
+
+| Test | Result |
+| --- | --- |
+| `SessionEstablishmentTest` | 82 PASS, 0 FAIL |
+| `SendDataTest` (live machine data) | 23 PASS, 0 FAIL |
+| `SessionTerminationTest` | 23 PASS, 0 FAIL |
+
+Assertions reported NOT EXECUTED are inapplicable rather than unmet: metric aliases, which this relay does not use; MQTT 5 clean-session and disconnect semantics, where it speaks 3.1.1; and the `ddeath` assertions, which require an individual Device to go offline rather than the whole Edge Node.
+
 Implements the full Sparkplug B lifecycle:
 
 - **NBIRTH** on first broker connect — declares this Edge Node (includes the spec-required `Node Control/Rebirth` metric).
 - **DBIRTH** per device on connect / `DeviceAdded` — full current-value snapshot for every DataItem in the device, with each metric carrying its observation's **real timestamp** (not the rebirth time), so historians don't record phantom updates at every reconnect.
 - **DDATA** batched per device as values change.
 - **DDEATH** when a device flips to `AVAILABILITY=UNAVAILABLE`, with a re-`DBIRTH` if it comes back.
-- **NDEATH** is registered as the broker's last-will — if the agent process dies, every downstream consumer sees all devices on this node go offline simultaneously.
+- **NDEATH** is registered as the broker's last-will for an ungraceful exit, and published deliberately before a clean DISCONNECT on an intentional stop — so consumers can tell a planned shutdown from a crash. Either way every device on this node goes offline at once.
 - **NCMD Node Control/Rebirth** is honoured: a primary host sending `Node Control/Rebirth=true` causes the module to republish NBIRTH + every DBIRTH.
 
 ## Configuration
@@ -27,6 +76,7 @@ Add a `- sparkplug-relay:` block under `modules:` in `agent.config.yaml`. One bl
     groupId: Factory                         # Sparkplug Group ID (top-level namespace)
     nodeId: Agent1                           # Sparkplug Edge Node ID (this agent's identity)
     reconnectInterval: 10000                 # ms between reconnect attempts
+    primaryHostId: SCADA-1                   # optional; wait for this host's STATE before NBIRTH
     useTls: true                             # optional; see "TLS and client certificates"
     caCertificateFile: certs/broker-ca.crt   # optional; pin the broker's CA
     clientCertificateFile: certs/agent1.pfx  # optional; mutual-TLS client cert
@@ -45,6 +95,8 @@ Add a `- sparkplug-relay:` block under `modules:` in `agent.config.yaml`. One bl
 | `groupId`                   | yes      | `MTConnect`        | Sparkplug Group ID (first path segment in topics: `spBv1.0/{groupId}/...`).                        |
 | `nodeId`                    | yes      | `Agent`            | Sparkplug Edge Node ID (`spBv1.0/{groupId}/DBIRTH/{nodeId}/{deviceKey}`).                          |
 | `reconnectInterval`         | no       | `10000`            | Milliseconds between reconnect attempts after the broker connection drops.                         |
+| `stateDirectory`            | no       | `state`            | Overrides where persisted `bdSeq` lives. Rarely needed — see [Persisting bdSeq](#persisting-bdseq). |
+| `primaryHostId`             | no       | —                  | Sparkplug Primary Host Application ID. When set, NBIRTH waits for that host's `STATE` to report online (`tck-id-message-flow-edge-node-birth-publish-phid-wait`). Omit when no primary host is present. |
 | `useTls`                    | no       | `false`            | Enables TLS on the MQTT connection.                                                                |
 | `caCertificateFile`         | no       | —                  | Broker CA certificate (PEM or DER). Pins server-cert validation to this CA instead of the OS store.|
 | `clientCertificateFile`     | no       | —                  | PKCS#12 (`.pfx`/`.p12`) bundle with the client certificate + private key → mutual TLS.             |
@@ -100,16 +152,32 @@ Each device is either **born** (DBIRTH published and machine available → DDATA
 | `AVAILABILITY` → `UNAVAILABLE`    | `DDEATH` published once; queued and subsequent DDATA suppressed.                    |
 | `AVAILABILITY` → `AVAILABLE`      | Fresh `DBIRTH` (full current-value snapshot from the agent buffer), then DDATA resumes. |
 | Broker reconnect / NCMD Rebirth   | NBIRTH + fresh DBIRTH for every device; each device's born state is re-derived from its current `AVAILABILITY`. |
+| Device model declares **no** `AVAILABILITY` DataItem | Treated as born (DDATA flows) and a warning is logged once per device. |
+
+A device that has been configured but never contacted — the machine is switched off, or its adapter block is not enabled yet — births normally and is then immediately DDEATH-ed, because its seeded `AVAILABILITY` is `UNAVAILABLE`. That is intentional: downstream consumers learn the device's full metric set up front (so tags, screens, and alarms can be provisioned before the machine is wired) while DDEATH correctly marks it offline. It re-births with real values the moment the machine first reports `AVAILABLE`.
+
+The last row is a guard, not a supported configuration. The MTConnect standard requires a `Device` to carry `AVAILABILITY`, so a model without one is a malformed device file — but a device that cannot report `AVAILABLE` can never become born, and the previous behaviour was to drop every one of its observations forever with nothing logged to explain the silence. Availability is simply unobservable for such a device, so the relay treats it as available and says so, rather than asserting a machine is dead on no evidence.
 
 ## Value coercion
 
 | MTConnect category    | Sparkplug type                                                              |
 | --------------------- | --------------------------------------------------------------------------- |
-| `SAMPLE`              | `Double` always (forced — Sparkplug DataType must match the DBIRTH declaration; coerces with `InvariantCulture` parsing, defaulting to `0.0` on parse failure or unavailable). |
+| `SAMPLE`              | `Double` always (forced — Sparkplug DataType must match the DBIRTH declaration; coerced with `InvariantCulture` parsing). |
 | `EVENT` / `CONDITION` | `String` pass-through.                                                       |
-| Unavailable           | `0.0` (SAMPLEs) or `"UNAVAILABLE"` (EVENT / CONDITION).                      |
+| Unavailable           | `is_null` (SAMPLEs) or `"UNAVAILABLE"` (EVENT / CONDITION).                  |
+| SAMPLE that won't parse | `is_null` — a non-numeric value on a SAMPLE is a modelling error, and reporting it as missing data surfaces the problem instead of hiding it behind a plausible number. |
 
 The reason SAMPLEs are forced to `Double` even when unavailable: Sparkplug requires the data type of a metric to match what was declared in `DBIRTH`. Publishing a string "UNAVAILABLE" for a metric declared as `Double` is a protocol violation that most consumers reject.
+
+### Why unavailable numerics publish `is_null` rather than `0.0`
+
+Sparkplug carries "no value" **out of band**, in each metric's `is_null` flag, so a numeric metric can say "no reading" while keeping the `Double` type its DBIRTH declared. Sending `0.0` instead would be indistinguishable from real data — an axis position, a spindle load, and a feedrate all reach a genuine zero in normal operation — so a historian would trend the placeholder as a measurement.
+
+This matters most on **disconnect**, not at birth. When an adapter drops its connection it sets its DataItems unavailable, and those arrive as ordinary observations while the device is still born, so they publish as DDATA *before* `AVAILABILITY` flips and DDEATH lands. Under the old behaviour every numeric metric on the device wrote a convincing zero into its trend on every dropout.
+
+String-valued metrics keep MTConnect's own `UNAVAILABLE` literal instead: a `String` metric can carry it without misrepresenting its type, and it is a state operators recognise and dashboards key on. The asymmetry is deliberate.
+
+`SparkplugNet` has no public setter for `is_null`; passing a null value to the `Metric` constructor is the supported way to set it, and the declared `DataType` is still preserved on the wire.
 
 ## Sharing the Edge Node across all devices on this agent
 

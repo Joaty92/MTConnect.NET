@@ -35,3 +35,55 @@ services:
       - ./devices:/app/devices
       - ./profiles:/app/profiles
       - ./logs:/app/logs
+      # Sparkplug bdSeq counter — see "Persisting the Sparkplug bdSeq counter" in
+      # deploy/README.md. No config change needed; serves every sparkplug-relay block.
+      - ./state:/app/state
+
+  # ---------------------------------------------------------------------------
+  #  A SECOND Sparkplug Edge Node (optional)
+  # ---------------------------------------------------------------------------
+  #
+  #  One agent process publishes every one of its devices under a single Edge
+  #  Node identity (the sparkplug-relay block's groupId + nodeId). That is fine
+  #  for a handful of machines, but Sparkplug couples everything under one node:
+  #
+  #    * `seq` is per Edge Node, not per device. One dropped QoS 0 message
+  #      anywhere leaves a gap the Host Application detects, and its recovery is
+  #      to request a rebirth of the WHOLE node — every device's DBIRTH at once.
+  #    * NDEATH is per Edge Node. If this process dies, every machine under it
+  #      goes offline simultaneously from a consumer's point of view.
+  #    * Editing agent.config.yaml restarts the agent, which re-births every
+  #      device it owns and bumps the MTConnect InstanceId for all of them.
+  #
+  #  Splitting the fleet across two containers gives each group its own Edge
+  #  Node and its own restart blast radius: adding a machine to one group leaves
+  #  the other untouched. Around 10-15 machines per node is a reasonable start.
+  #
+  #  Each container needs its OWN config and devices folder. The devices folder
+  #  IS the partition — an agent relays every device XML it can see, so a given
+  #  machine's XML must live in exactly one group's folder, never both. The
+  #  adapters go with it: whichever container holds a machine's device XML also
+  #  holds the SHDR / OPC UA / Haas adapter block that feeds it.
+  #
+  #  Note this splits the MTConnect HTTP view too — each container serves only
+  #  its own devices on its own port, and nothing aggregates /probe across them.
+  #  If something consumes the HTTP API fleet-wide, keep a single container.
+  #
+  #  To use: create config-2/ and devices-2/ alongside the originals, set a
+  #  different nodeId in config-2/agent.config.yaml (e.g. nodeId: Agent2), move
+  #  that group's device XML and adapter blocks across, then uncomment below.
+  #
+  # mtconnect-agent-spb-2:
+  #   image: mtconnect-agent-spb:1.0.0
+  #   container_name: mtconnect-agent-spb-2
+  #   restart: unless-stopped
+  #   ports:
+  #     # Different HOST port; the container port stays 5000 unless the
+  #     # http-server module's `port:` was changed in config-2.
+  #     - "5004:5000"
+  #   volumes:
+  #     - ./config-2/agent.config.yaml:/app/agent.config.yaml
+  #     - ./config-2/NLog.config:/app/NLog.config
+  #     - ./devices-2:/app/devices
+  #     - ./profiles:/app/profiles
+  #     - ./logs-2:/app/logs

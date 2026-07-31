@@ -50,7 +50,23 @@ namespace MTConnect
             Agent.DeviceAdded -= AgentDeviceAdded;
             Agent.ObservationAdded -= AgentObservationAdded;
 
-            if (_relay != null) _ = _relay.Stop();
+            // Waited on rather than fired and forgotten. Stop() publishes NDEATH and then
+            // disconnects cleanly, which is what lets a Host Application tell a planned
+            // shutdown from a failure; a process that exits before that completes reports
+            // every deliberate stop as a crash. Bounded so an unreachable broker delays
+            // shutdown briefly instead of hanging it.
+            if (_relay != null)
+            {
+                try
+                {
+                    if (!_relay.Stop().Wait(TimeSpan.FromSeconds(5)))
+                        Log(MTConnectLogLevel.Warning, "SparkplugB relay did not shut down within 5s");
+                }
+                catch (Exception ex)
+                {
+                    Log(MTConnectLogLevel.Warning, $"SparkplugB relay shutdown error: {ex.Message}");
+                }
+            }
         }
 
         private async void AgentDeviceAdded(object sender, IDevice device)

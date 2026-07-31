@@ -241,6 +241,54 @@ docker image rm mtconnect-agent-spb:1.0.0
 
 ---
 
+## Persisting the Sparkplug bdSeq counter
+
+Sparkplug's `bdSeq` is how a Host Application tells a live session from a stale NDEATH the broker delivered late: the Will Message registered on a connection and the NBIRTH published on that same connection carry the same value, and it must advance on every connect.
+
+The agent persists it, but by default to a file beside the binary — which **inside a container is lost when the container is recreated**. Every `docker compose down && up` would therefore restart the counter at zero and replay values the host has already seen, so a genuinely new session can be mistaken for the stale one it replaces. The Eclipse Sparkplug TCK catches this as `tck-id-topics-nbirth-bdseq-increment`.
+
+Give it a mounted directory — that is the whole change, and it serves every relay block:
+
+```yaml
+    volumes:
+      - ./state:/app/state          # add alongside the existing mounts
+```
+
+Create `state/` next to `config/` and `devices/` when preparing the site folder. No `agent.config.yaml` change is needed: `/app/state` is where the agent already writes, and each file is named after its Edge Node identity (`bdseq-<groupId>-<nodeId>`), so several `sparkplug-relay` blocks share the directory without sharing a counter. Each file holds a single number and is safe to delete; doing so simply restarts that node's sequence.
+
+## Splitting a larger fleet across several Sparkplug Edge Nodes
+
+One agent process publishes **every device it loads** under a single Edge Node — the `groupId` + `nodeId` of its `sparkplug-relay` block. That is the right shape for a handful of machines. Past that, three properties of Sparkplug start to couple machines together that have nothing to do with each other:
+
+- **`seq` is per Edge Node, not per device.** Sparkplug messages are QoS 0, so one dropped publish anywhere leaves a gap the Host Application detects — and its prescribed recovery is a `Node Control/Rebirth` for the whole node, meaning every device's DBIRTH at once. On a large node that burst is itself more likely to drop something.
+- **NDEATH is per Edge Node.** If the process dies, every machine under it goes offline simultaneously from a consumer's point of view.
+- **A config edit restarts the agent**, which re-births every device it owns and bumps the MTConnect `InstanceId` for all of them. While a site is being commissioned this is the churn you notice most.
+
+Splitting the fleet across containers gives each group its own Edge Node identity, its own MQTT session, and — the practical win — its own restart blast radius. Adding a machine to one group leaves the others untouched. Ten to fifteen machines per node is a reasonable starting point.
+
+**The `devices/` folder is the partition.** An agent relays every device XML it can see, so a machine's XML must live in exactly one group's folder and never in two. The adapter blocks travel with it: whichever container holds a machine's device XML also holds the `shdr-adapter` / `opcua-adapter` / `haas-ethernet` block that feeds it.
+
+```
+<install-root>/
+├─ docker-compose.yml
+├─ config/     agent.config.yaml  → nodeId: Agent1
+├─ devices/    Machine-01.xml, Machine-02.xml
+├─ config-2/   agent.config.yaml  → nodeId: Agent2
+├─ devices-2/  Machine-03.xml, Machine-04.xml
+├─ profiles/   (shared — read-only, safe to mount into both)
+├─ logs/
+└─ logs-2/
+```
+
+A worked two-service compose file is in [docker-compose.deploy.template.yml](docker-compose.deploy.template.yml), commented out and ready to enable.
+
+Two caveats before you split:
+
+- **It splits the MTConnect HTTP view as well.** Each container serves only its own devices, on its own host port, and nothing aggregates `/probe` or `/current` across them. If anything consumes the HTTP API fleet-wide, stay on one container. If your consumers are Sparkplug-only, this costs you nothing.
+- **Each container is a full agent**, so budget roughly 100–200 MB of memory per group. Comfortable at three or four groups; wasteful at twenty.
+
+---
+
 ## FAQ
 
 **Q: Do I need to keep the `.tar` file on the target after loading?**
