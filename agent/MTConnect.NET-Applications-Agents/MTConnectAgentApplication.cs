@@ -555,6 +555,10 @@ namespace MTConnect.Applications
                     deviceConfigurations = DeviceConfiguration.FromFiles(devicesPath, DocumentFormat.XML);
                     if (!deviceConfigurations.IsNullOrEmpty())
                     {
+                        // Warn before loading so the operator sees the collision even if
+                        // the resulting behaviour looks superficially healthy
+                        WarnOnDuplicateEntityIds(deviceConfigurations);
+
                         // Add Device(s) to Agent
                         foreach (var device in deviceConfigurations)
                         {
@@ -687,6 +691,89 @@ namespace MTConnect.Applications
         /// <param name="initializeDataItems">Whether the agent seeded
         /// observations for every data item.</param>
         protected virtual void OnStartAgentAfterLoad(IEnumerable<DeviceConfiguration> devices, bool initializeDataItems = false) { }
+
+        /// <summary>
+        /// Logs a warning for every entity Id declared more than once across the loaded Device
+        /// configuration files, naming the Id and each Device (and file) that declares it.
+        /// </summary>
+        /// <remarks>
+        /// Device, Component, Composition and DataItem Ids are <c>xs:ID</c> in the MTConnect
+        /// schema, and XML Schema scopes <c>xs:ID</c> uniqueness to the whole document. Since
+        /// a Probe response returns every Device in a single MTConnectDevices document, an Id
+        /// reused across two Device files makes that response schema-invalid and leaves
+        /// observations resolving against whichever Device is looked up first. Nothing else in
+        /// the load path detects this, and the result can look healthy from the Probe and
+        /// Current responses alone, so it is reported explicitly at startup.
+        /// This warns rather than refusing to start: an agent already running in production
+        /// should not be taken down by a pre-existing duplicate it has been tolerating.
+        /// </remarks>
+        /// <param name="deviceConfigurations">The Device configurations read from file.</param>
+        private void WarnOnDuplicateEntityIds(IEnumerable<DeviceConfiguration> deviceConfigurations)
+        {
+            if (deviceConfigurations.IsNullOrEmpty()) return;
+
+            // Id => the "<uuid> (<file>)" sources that declare it
+            var sources = new Dictionary<string, List<string>>();
+
+            foreach (var device in deviceConfigurations)
+            {
+                var source = $"{device.Uuid} ({device.Path})";
+
+                foreach (var id in GetEntityIds(device))
+                {
+                    if (string.IsNullOrEmpty(id)) continue;
+
+                    if (!sources.TryGetValue(id, out var declaredBy))
+                    {
+                        declaredBy = new List<string>();
+                        sources.Add(id, declaredBy);
+                    }
+
+                    declaredBy.Add(source);
+                }
+            }
+
+            foreach (var entry in sources)
+            {
+                if (entry.Value.Count > 1)
+                {
+                    _agentLogger.Warn($"Duplicate Id (\"{entry.Key}\") declared {entry.Value.Count} times : {string.Join(", ", entry.Value.Distinct())} : Component and DataItem Ids must be unique across all Devices, not just within one");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Enumerates every entity Id a Device contributes to the Devices document: the Device's
+        /// own Id, and the Ids of all of its Components, Compositions and DataItems.
+        /// </summary>
+        /// <param name="device">The Device to enumerate.</param>
+        /// <returns>Each declared Id, including any the Device itself repeats.</returns>
+        private static IEnumerable<string> GetEntityIds(IDevice device)
+        {
+            if (device == null) yield break;
+
+            yield return device.Id;
+
+            var components = device.GetComponents();
+            if (!components.IsNullOrEmpty())
+            {
+                foreach (var component in components)
+                {
+                    yield return component.Id;
+
+                    if (!component.Compositions.IsNullOrEmpty())
+                    {
+                        foreach (var composition in component.Compositions) yield return composition.Id;
+                    }
+                }
+            }
+
+            var dataItems = device.GetDataItems();
+            if (!dataItems.IsNullOrEmpty())
+            {
+                foreach (var dataItem in dataItems) yield return dataItem.Id;
+            }
+        }
 
         /// <summary>
         /// Extension hook: fires once <see cref="StopAgent"/> has

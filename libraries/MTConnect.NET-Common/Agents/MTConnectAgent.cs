@@ -579,11 +579,11 @@ namespace MTConnect.Agents
                 {
                     var lookupKey = deviceUuid + ":" + dataItemKey;
 
-                    // Lookup DataItemId from DeviceUuid:DataItemKey
-                    if (_dataItemKeys.TryGetValue(lookupKey, out var dataItemId))
+                    // Lookup the canonical DeviceUuid:DataItemId from DeviceUuid:DataItemKey
+                    if (_dataItemKeys.TryGetValue(lookupKey, out var canonicalKey))
                     {
                         // Lookup DataItem from cached list
-                        if (_dataItems.TryGetValue(dataItemId, out var dataItem))
+                        if (_dataItems.TryGetValue(canonicalKey, out var dataItem))
                         {
                             return dataItem;
                         }
@@ -598,14 +598,21 @@ namespace MTConnect.Agents
                         var dataItem = GetDataItemFromKey(device, dataItemKey);
                         if (dataItem != null)
                         {
+                            // DataItem Ids are only unique within a Device, so the cache
+                            // must be keyed by DeviceUuid:DataItemId. Keying by DataItemId
+                            // alone lets the first Device to observe a given Id win, and
+                            // every other Device then resolves to that Device's DataItem
+                            // (and its Device back-reference).
+                            var resolvedKey = deviceUuid + ":" + dataItem.Id;
+
                             // Update DataItem in cached list
-                            if (!_dataItems.ContainsKey(dataItem.Id))
+                            if (!_dataItems.ContainsKey(resolvedKey))
                             {
-                                _dataItems.TryAdd(dataItem.Id, dataItem);
+                                _dataItems.TryAdd(resolvedKey, dataItem);
                             }
 
                             // Update DataItemKey in cached list
-                            _dataItemKeys.TryAdd(lookupKey, dataItem.Id);
+                            _dataItemKeys.TryAdd(lookupKey, resolvedKey);
 
                             return dataItem;
                         }
@@ -614,6 +621,30 @@ namespace MTConnect.Agents
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Removes the cached DataItem key resolutions and DataItem instances belonging to a Device.
+        /// Called when a Device model is replaced so that later lookups re-resolve against the new model.
+        /// </summary>
+        /// <param name="deviceUuid">The UUID of the Device whose cache entries should be dropped.</param>
+        private void InvalidateDataItemCache(string deviceUuid)
+        {
+            if (string.IsNullOrEmpty(deviceUuid)) return;
+
+            // Both caches are keyed with the DeviceUuid as the first ':'-delimited
+            // segment, so this Device's entries are exactly those with this prefix.
+            var prefix = deviceUuid + ":";
+
+            foreach (var key in _dataItemKeys.Keys)
+            {
+                if (key.StartsWith(prefix)) _dataItemKeys.TryRemove(key, out _);
+            }
+
+            foreach (var key in _dataItems.Keys)
+            {
+                if (key.StartsWith(prefix)) _dataItems.TryRemove(key, out _);
+            }
         }
 
         private IDataItem GetDataItemFromKey(IDevice device, string key)
@@ -1697,6 +1728,12 @@ namespace MTConnect.Agents
                         _deviceDataItems.TryAdd(obj.Uuid, obj.GetDataItems());
                         _deviceDataItemIds.TryRemove(obj.Uuid, out _);
                         _deviceDataItemIds.TryAdd(obj.Uuid, obj.GetDataItems().Select(o => o.Id));
+
+                        // Drop this Device's resolved-DataItem caches. They hold IDataItem
+                        // instances from the previous Device model (and their Device
+                        // back-references), so leaving them would resolve observations
+                        // against a model this Device no longer has.
+                        InvalidateDataItemCache(obj.Uuid);
 
                         if (initializeDataItems)
                         {
