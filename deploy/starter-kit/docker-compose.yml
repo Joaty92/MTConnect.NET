@@ -9,7 +9,7 @@ services:
 
     # Bump this tag to match whatever .tar you shipped alongside.
     # `docker load` prints "Loaded image: <tag>" so you know what to reference.
-    image: mtconnect-agent-spb:1.0.0
+    image: mtconnect-agent-spb:1.1.0
 
     container_name: mtconnect-agent-spb
 
