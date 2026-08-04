@@ -244,14 +244,35 @@ namespace MTConnect.Clients
             }
         }
 
+        /// <summary>
+        /// Resolves the Device UUID that an Observation's topic should be published under.
+        /// </summary>
+        /// <remarks>
+        /// Prefers the Observation's own <c>DeviceUuid</c>, which the Agent stamps with the
+        /// Device the Observation was reported for. Falls back to the DataItem's Device
+        /// back-reference only when the Observation carries no UUID of its own.
+        /// </remarks>
+        /// <param name="observation">The Observation being published.</param>
+        /// <returns>The Device UUID to use in the topic, or <c>null</c> if neither source supplies one.</returns>
+        private static string GetTopicDeviceUuid(IObservation observation)
+        {
+            if (observation == null) return null;
+            if (!string.IsNullOrEmpty(observation.DeviceUuid)) return observation.DeviceUuid;
+            return observation.DataItem?.Device?.Uuid;
+        }
+
         private MqttApplicationMessage CreateMessage(IObservation observation)
         {
             if (observation != null)
             {
-                var device = observation.DataItem?.Device;
-                if (device != null)
+                // Take the Device from the Observation itself rather than from the
+                // DataItem's Device back-reference: the Observation is stamped with the
+                // Device it was reported for, whereas the DataItem is a shared model
+                // object whose back-reference points at whichever Device declared it.
+                var deviceUuid = GetTopicDeviceUuid(observation);
+                if (!string.IsNullOrEmpty(deviceUuid))
                 {
-                    var topic = $"{_configuration.TopicPrefix}/Devices/{device.Uuid}/Observations/{observation.DataItemId}";
+                    var topic = $"{_configuration.TopicPrefix}/Devices/{deviceUuid}/Observations/{observation.DataItemId}";
 
                     var formatOptions = new Dictionary<string, string>();
                     formatOptions.Add("categoryOutput", "true");
@@ -280,10 +301,10 @@ namespace MTConnect.Clients
             if (!observations.IsNullOrEmpty())
             {
                 var observation = observations.FirstOrDefault();
-                var device = observation.DataItem?.Device;
-                if (device != null)
+                var deviceUuid = GetTopicDeviceUuid(observation);
+                if (!string.IsNullOrEmpty(deviceUuid))
                 {
-                    var topic = $"{_configuration.TopicPrefix}/Devices/{device.Uuid}/Observations/{observation.DataItemId}";
+                    var topic = $"{_configuration.TopicPrefix}/Devices/{deviceUuid}/Observations/{observation.DataItemId}";
 
                     var formatOptions = new Dictionary<string, string>();
                     formatOptions.Add("categoryOutput", "true");
