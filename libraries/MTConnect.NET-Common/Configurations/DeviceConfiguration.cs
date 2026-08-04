@@ -201,6 +201,27 @@ namespace MTConnect.Configurations
         /// <param name="documentFormatterId">The ID of the formatter used to deserialize the device document (for example, <c>xml</c> or <c>json</c>).</param>
         public static IEnumerable<DeviceConfiguration> FromFiles(string path, string documentFormatterId)
         {
+            return FromFiles(path, documentFormatterId, out _);
+        }
+
+        /// <summary>
+        /// Gets a list of Devices from files (ex. devices.xml) found in the specified directory path,
+        /// reporting the files that yielded no Devices.
+        /// </summary>
+        /// <remarks>
+        /// A file that cannot be read is skipped rather than abandoning the directory, so one bad
+        /// Device file cannot stop every other Device from loading. Callers are expected to surface
+        /// <paramref name="unreadableFiles"/>: a silently skipped file is indistinguishable from a
+        /// missing one, which makes a typo in a Device file very hard to track down.
+        /// </remarks>
+        /// <param name="path">The path to the directory containing Device Configuration files</param>
+        /// <param name="documentFormatterId">The ID of the formatter used to deserialize the device document (for example, <c>xml</c> or <c>json</c>).</param>
+        /// <param name="unreadableFiles">The paths of files from which no Device could be read; empty when all files loaded.</param>
+        public static IEnumerable<DeviceConfiguration> FromFiles(string path, string documentFormatterId, out IEnumerable<string> unreadableFiles)
+        {
+            var unreadable = new List<string>();
+            unreadableFiles = unreadable;
+
             if (!string.IsNullOrEmpty(path))
             {
                 // Add Working directory (if path is not rooted)
@@ -221,13 +242,24 @@ namespace MTConnect.Configurations
 
                             foreach (var file in files)
                             {
-                                var documentDevices = FromFile(file, documentFormatterId);
+                                // Per-file guard: keep one unreadable file from aborting the scan.
+                                IEnumerable<DeviceConfiguration> documentDevices = null;
+                                try
+                                {
+                                    documentDevices = FromFile(file, documentFormatterId);
+                                }
+                                catch { }
+
                                 if (!documentDevices.IsNullOrEmpty())
                                 {
                                     foreach (var device in documentDevices)
                                     {
                                         devices.Add(device);
                                     }
+                                }
+                                else
+                                {
+                                    unreadable.Add(file);
                                 }
                             }
 
@@ -236,7 +268,9 @@ namespace MTConnect.Configurations
                     }
                     else
                     {
-                        return FromFile(rootPath, documentFormatterId);
+                        var documentDevices = FromFile(rootPath, documentFormatterId);
+                        if (documentDevices.IsNullOrEmpty()) unreadable.Add(rootPath);
+                        return documentDevices;
                     }
                 }
                 catch { }

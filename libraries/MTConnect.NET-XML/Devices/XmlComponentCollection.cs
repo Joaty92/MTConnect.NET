@@ -171,6 +171,15 @@ namespace MTConnect.Devices.Xml
                     }
                 }
             }
+            catch (XmlException)
+            {
+                // Malformed markup leaves the reader unable to move past this element.
+                // Swallowing it here is what turns a bad file into a hang: the generated
+                // XmlSerializer calls ReadXml once per child element and re-enters on the
+                // same node forever when we return without consuming it. Letting it
+                // propagate lets XmlDevice.FromXml catch it and report the file unreadable.
+                throw;
+            }
             catch { }
 
             // Advance Reader

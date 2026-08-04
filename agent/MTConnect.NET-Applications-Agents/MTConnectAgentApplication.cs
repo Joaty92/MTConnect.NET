@@ -552,7 +552,18 @@ namespace MTConnect.Applications
                 var devicesPath = configuration.Devices;
                 if (!string.IsNullOrEmpty(devicesPath))
                 {
-                    deviceConfigurations = DeviceConfiguration.FromFiles(devicesPath, DocumentFormat.XML);
+                    deviceConfigurations = DeviceConfiguration.FromFiles(devicesPath, DocumentFormat.XML, out var unreadableDeviceFiles);
+
+                    // Name the files that produced no Device. Without this a malformed
+                    // Device file is indistinguishable from one that was never there.
+                    if (!unreadableDeviceFiles.IsNullOrEmpty())
+                    {
+                        foreach (var unreadableFile in unreadableDeviceFiles)
+                        {
+                            _agentLogger.Error($"Device Configuration File could not be read (it is being skipped) : {unreadableFile} : check that the file is well-formed XML and contains a Device");
+                        }
+                    }
+
                     if (!deviceConfigurations.IsNullOrEmpty())
                     {
                         // Warn before loading so the operator sees the collision even if
