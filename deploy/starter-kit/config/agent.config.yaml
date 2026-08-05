@@ -134,6 +134,8 @@ modules:
 
 # ============================================================================
 #  Agent buffer + global settings
+#  Everything below is TOP-LEVEL - a sibling of devices: and modules:, NOT
+#  nested inside a module block. Commented lines show the built-in default.
 # ============================================================================
 
 observationBufferSize: 150000
@@ -149,4 +151,100 @@ assetBufferSize: 1000
 # durable: true
 # durableBufferPath: /app/buffer
 
+# Compress the durable buffer files on disk. Smaller footprint, more CPU per write.
+# Only has any effect when durable: true.
+# useBufferCompression: false
+
 # defaultVersion: 2.7
+
+# ---------------------------------------------------------------------------
+#  Validation
+# ---------------------------------------------------------------------------
+
+# How strictly incoming Observations and Assets are checked against their DataItem
+# definition (type, controlled vocabulary, units):
+#   0 = Ignore   no validation - lowest CPU, invalid values stored as-is
+#   1 = Warning  validate, log the problem, store anyway  [DEFAULT]
+#   2 = Remove   drop the invalid value
+#   3 = Strict   reject the observation entirely
+# Worth dropping to 0 on a busy agent once the device XMLs are known good: validation
+# runs on every observation, and on an adapter pushing hundreds of values a second it
+# is a measurable share of CPU. Keep it at 1 while a new device model is bedding in -
+# it is what tells you a key does not match its declared type.
+# inputValidationLevel: 1
+
+# Stamp each Observation with a Quality (VALID / INVALID / UNVERIFIABLE) plus the
+# Deprecated and Extended flags, using the validation result. Independent of the level
+# above. Off by default; turn on if a consumer needs to distinguish trustworthy values.
+# enableValidation: false
+
+# ---------------------------------------------------------------------------
+#  Value handling
+# ---------------------------------------------------------------------------
+
+# Convert incoming values from the DataItem's nativeUnits to its units (e.g. a
+# controller reporting MILLIMETER/MINUTE into MILLIMETER/SECOND). Defaults on. Turn off
+# only if an adapter already sends values in the declared units and the conversion is
+# corrupting them - a wrong nativeUnits is the usual cause, and fixing the device XML
+# is the better fix.
+# convertUnits: true
+
+# Uppercase Observation values before validating them, so an adapter sending "active"
+# satisfies a vocabulary expecting "ACTIVE". Leave off unless an adapter's casing cannot
+# be corrected at source - it masks a real mismatch.
+# ignoreObservationCase: false
+
+# ---------------------------------------------------------------------------
+#  Agent identity + self-reporting
+# ---------------------------------------------------------------------------
+
+# Publish the built-in "Agent" Device - a synthetic device describing the agent itself.
+# It appears in /probe alongside the machines with a GUID-style uuid, and (because the
+# relays publish everything in the buffer) shows up on MQTT / Sparkplug too. It carries
+# per-adapter CONNECTION_STATUS, observation and asset counts, and agent availability.
+# Set false to remove it everywhere - but note that adapter connection status is how you
+# notice a machine has quietly stopped feeding, so prefer filtering it at the subscriber
+# or broker if the objection is only topic clutter.
+# enableAgentDevice: true
+
+# Collect ObservationUpdateRate / AssetUpdateRate metrics, surfaced on the Agent Device.
+# No use if enableAgentDevice is false.
+# enableMetrics: true
+
+# Pin the agent's uuid. Per the MTConnect v2.7 XSD this identifies the agent for its
+# entire life, and Header.instanceId is the per-boot discriminator. Leave unset to have
+# one derived deterministically - it stays stable across restarts either way.
+# agentUuid: agent-001
+
+# IANA timezone applied to timestamps in output documents (e.g. Europe/London).
+# Unset = UTC, which is what most consumers expect. Set only if a consumer needs local time.
+# timezoneOutput: UTC
+
+# ---------------------------------------------------------------------------
+#  Configuration file monitoring
+# ---------------------------------------------------------------------------
+
+# Watch this file and the device files, restarting the agent when one changes.
+# Defaults on - but be aware filesystem events do NOT reliably cross a Windows-host to
+# Linux-container bind mount, so on Docker Desktop a change usually goes unnoticed and
+# you should assume `docker compose restart` is required. A NEW device file is never
+# picked up on any platform: watchers are created only for the files present at startup.
+# monitorConfigurationFiles: true
+
+# Minimum seconds between restarts triggered by the watcher above. Guards against a
+# rapid edit or an editor's write-then-truncate causing a restart loop.
+# configurationFileRestartInterval: 2
+
+# ---------------------------------------------------------------------------
+#  Processors
+# ---------------------------------------------------------------------------
+
+# Observation/Asset processing pipeline. Every observation is passed through the chain
+# before it is stored, so leave this out entirely unless you are using it - the hot path
+# does work per observation even when the directory holds no scripts.
+# processors:
+# - python:
+#     directory: processors
+
+# Windows-service settings (serviceName, serviceDisplayName, serviceAutoStart) also exist
+# but do nothing in a container - they apply when the agent is installed as a service.

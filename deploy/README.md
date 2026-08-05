@@ -76,6 +76,8 @@ cp -r <path-to-this-repo>/deploy/starter-kit <ship-staging>/SiteA
 
 Then edit `<ship-staging>/SiteA/config/agent.config.yaml` — uncomment the module blocks you need (mqtt-relay, sparkplug-relay, opcua-adapter, shdr-adapter, haas-ethernet) and fill in the site's IPs, broker hostnames, deviceKeys. Drop any per-machine device XMLs into `devices/` and OPC UA profile bundles into `profiles/`.
 
+Below the module blocks, the same file documents the agent-wide settings — buffer sizes, `inputValidationLevel`, `enableAgentDevice`, unit conversion, timestamp handling and config-file monitoring — each commented out and annotated with its built-in default. The defaults suit most sites; the two worth a look on a busy agent are `inputValidationLevel` (validation runs per observation) and the relay `currentInterval` (a full re-publish of every device on each sweep).
+
 That's it. Zip `<ship-staging>/SiteA/`, ship alongside the `.tar`, done.
 
 **Alternative (legacy) path — build the site folder from scratch:**
