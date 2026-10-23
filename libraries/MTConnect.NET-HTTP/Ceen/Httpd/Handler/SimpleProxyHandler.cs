@@ -66,7 +66,17 @@ namespace Ceen.Httpd.Handler
             wr.Method = context.Request.Method;
             if (context.Request.ContentLength > 0)
                 using (var rs = await wr.GetRequestStreamAsync())
-                    await context.Request.Body.CopyToAsync(rs);
+                    // Same bug class as MTConnectPostResponseHandler.ReadRequestBytes
+                    // (dime F-IMP-001): a request-body drain must honour the outer
+                    // cancellation token so a client abort short-circuits the copy
+                    // rather than reading the full body into the proxied upstream.
+                    // Uses the (Stream, int bufferSize, CancellationToken) overload
+                    // (universal since .NET 4.5); the 2-arg (Stream, CancellationToken)
+                    // shape is netstandard2.1 / net5+ only and cannot ship on the
+                    // library's net4x / netstandard2.0 targets. The 81920 buffer
+                    // matches the .NET runtime default for the tokenless
+                    // CopyToAsync overload so throughput is unchanged.
+                    await context.Request.Body.CopyToAsync(rs, 81920, cancellationToken);
 
             using (var res = await GetResponseWithoutExceptionAsync(wr))
             {
@@ -83,12 +93,19 @@ namespace Ceen.Httpd.Handler
                 await context.Response.FlushHeadersAsync();
                 using (var r = context.Response.GetResponseStream())
                 using (var rr = res.GetResponseStream())
-
-#if NET5_0_OR_GREATER
-                    await rr.CopyToAsync(r, context.Request.TimeoutCancellationToken);
-#else
-                    await rr.CopyToAsync(r);
-#endif
+                    // Same bug class as the request-body drain 21 lines above
+                    // (dime F-IMP-005) and the sibling
+                    // MTConnectPostResponseHandler.ReadRequestBytes (dime F-IMP-001):
+                    // a slow upstream response must not block a client abort.
+                    // Uses the universal 3-arg (Stream, int bufferSize,
+                    // CancellationToken) overload so net461-net48 /
+                    // netstandard2.0 / net6.0 also honour the token — the
+                    // pre-existing #if NET5_0_OR_GREATER guard left those six
+                    // TFMs on a tokenless CopyToAsync, letting a slow-response
+                    // upstream fully drain after cancel. The 81920 buffer
+                    // matches the runtime default for the tokenless overload
+                    // so throughput on the happy path is unchanged.
+                    await rr.CopyToAsync(r, 81920, context.Request.TimeoutCancellationToken);
             }
 
             return true;

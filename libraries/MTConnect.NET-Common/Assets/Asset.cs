@@ -139,12 +139,12 @@ namespace MTConnect.Assets
         /// <param name="mtconnectVersion">The MTConnect version the response document targets.</param>
         public IAsset Process(Version mtconnectVersion)
         {
-			if (mtconnectVersion < MTConnectVersions.Version12) return null;
+            if (mtconnectVersion < MTConnectVersions.Version12) return null;
 
-			if (mtconnectVersion < MTConnectVersions.Version22) Hash = null;
+            if (mtconnectVersion < MTConnectVersions.Version22) Hash = null;
 
-			return OnProcess(mtconnectVersion);
-		}
+            return OnProcess(mtconnectVersion);
+        }
 
         /// <summary>
         /// Per-type version adjustment hook invoked by <see cref="Process"/>; the base implementation returns the asset unchanged. Overrides may downgrade properties or return null to exclude the asset for a given version.
@@ -152,8 +152,8 @@ namespace MTConnect.Assets
         /// <param name="mtconnectVersion">The MTConnect version the response document targets.</param>
         protected virtual IAsset OnProcess(Version mtconnectVersion)
         {
-			return this;
-		}
+            return this;
+        }
 
         /// <summary>
         /// Validates the asset against the given MTConnect version; the base implementation accepts all assets and is overridden by types with required fields or constraints.
@@ -170,7 +170,7 @@ namespace MTConnect.Assets
         /// <param name="includeTimestamp">When true, the asset timestamp is folded into the hash.</param>
         public virtual string GenerateHash(bool includeTimestamp = true)
         {
-			return null;
+            return null;
         }
-	}
+    }
 }

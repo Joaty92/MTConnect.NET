@@ -105,5 +105,37 @@ namespace MTConnect.SysML
 
             return null;
         }
+
+        /// <summary>
+        /// Returns the raw <c>deprecated</c> attribute value from the
+        /// <see cref="Xmi.Profile.Normative"/> stereotype attached to the
+        /// element with the supplied <paramref name="id"/>, or <c>null</c>
+        /// when the element is either absent or not carrying a deprecation
+        /// marker on its Normative stereotype.
+        /// </summary>
+        /// <remarks>
+        /// Vendored from mtconnect/MtconnectTranspiler v2.8. The value is
+        /// preserved as its raw string (e.g. <c>"2.5"</c>) rather than
+        /// coerced through <see cref="Version.TryParse"/> — downstream
+        /// consumers emit the exact upstream version literal into the
+        /// generated <c>[Obsolete("Deprecated in v{Version}")]</c>
+        /// attribute so callers can round-trip the spec metadata without
+        /// lossy normalisation (e.g. <c>"1.4.0"</c> vs <c>"1.4"</c>).
+        /// This complements <see cref="LookupDeprecated"/> which reads the
+        /// legacy <c>&lt;Profile:deprecated /&gt;</c> element.
+        /// </remarks>
+        public static string LookupNormativeDeprecated(XmiDocument xmiDocument, string id)
+        {
+            if (xmiDocument != null && !string.IsNullOrEmpty(id))
+            {
+                var x = xmiDocument.NormativeIntroductions?.FirstOrDefault(o => o.BaseElement == id);
+                if (x != null && !string.IsNullOrEmpty(x.Deprecated))
+                {
+                    return x.Deprecated;
+                }
+            }
+
+            return null;
+        }
     }
 }

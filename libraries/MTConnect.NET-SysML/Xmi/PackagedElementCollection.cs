@@ -109,7 +109,7 @@ namespace MTConnect.SysML.Xmi
         /// <inheritdoc/>
         public IEnumerator<T> GetEnumerator()
             => Items.GetEnumerator();
-        
+
         /// <inheritdoc/>
         public bool Remove(T item)
         {
@@ -135,7 +135,7 @@ namespace MTConnect.SysML.Xmi
 
         IEnumerator IEnumerable.GetEnumerator()
             => GetEnumerator();
-    
+
         /// <summary>
         /// Deserializes the XmlElement(s) into the provided <typeparamref name="T"/>.
         /// </summary>

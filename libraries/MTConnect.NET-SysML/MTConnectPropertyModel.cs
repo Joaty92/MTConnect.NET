@@ -124,86 +124,43 @@ namespace MTConnect.SysML
         /// per-property and per-type <c>xmi:id</c> overrides for the cases
         /// the XMI types incorrectly, then maps primitive types, value
         /// classes, and enumerations, defaulting to <c>string</c>.
+        /// The per-property and per-type-id override tables live in
+        /// <see cref="PrimitiveTypeMap"/> — extracted from the inline
+        /// switch statements that used to sit here so the tables are
+        /// reachable from the tests (and shared with the C# template
+        /// renderer's named-type switch, which also delegates through
+        /// the same helper).
         /// </summary>
         internal static string ParseType(XmiDocument xmiDocument, string propertyId, string typeId)
         {
             if (xmiDocument != null && propertyId != null && typeId != null)
             {
-                switch (propertyId)
+                var propertyOverride = PrimitiveTypeMap.MapByPropertyId(propertyId);
+                if (propertyOverride != null) return propertyOverride;
+
+                var primitive = PrimitiveTypeMap.MapByTypeId(typeId);
+                if (primitive != null) return primitive;
+
+                string dataType = null;
+
+                var dataClass = ModelHelper.GetClass(xmiDocument, typeId);
+                if (dataClass != null)
                 {
-                    // RawMaterials.RawMateral.CurrentVolume
-                    case "_19_0_3_68e0225_1618831247227_54016_392": return "double";
-
-                    // RawMaterials.RawMateral.CurrentDimension
-                    case "_19_0_3_68e0225_1622116618964_666287_1642": return "MILLIMETER_3D";
-
-                    // RawMaterials.RawMateral.InitialVolume
-                    case "_19_0_3_68e0225_1618831175692_489264_387": return "double";
-
-                    // RawMaterials.RawMateral.InitialDimension
-                    case "_19_0_3_68e0225_1622116618960_627070_1641": return "MILLIMETER_3D";
-
-
-                    // CuttingTools.ProcessFeedRate.Value (incorrect in MTConnect Model 2.2)
-                    case "_19_0_3_68e0225_1636117526335_679126_67": return "double";
+                    if (ModelHelper.IsValueClass(dataClass))
+                    {
+                        dataType = ModelHelper.GetValueType(xmiDocument, dataClass);
+                    }
+                    else
+                    {
+                        dataType = dataClass.Name;
+                    }
                 }
 
 
-                switch (typeId)
-                {
-                    // string
-                    case "_19_0_3_91b028d_1579272360416_763325_681": return "string";
-
-                    // integer
-                    case "_19_0_3_91b028d_1579272271512_537408_674": return "int";
-
-                    // boolean
-                    case "_19_0_3_91b028d_1579278876899_683310_3821": return "bool";
-
-                    // float
-                    case "_19_0_3_91b028d_1579272506322_914606_702": return "double";
-
-                    // double
-                    case "_19_0_3_68e0225_1678197512818_76309_18111": return "double";
-
-                    // DateTime
-                    case "_19_0_3_91b028d_1579272233011_597138_670": return "System.DateTime";
-
-                    // Description
-                    case "EAID_64352755_7251_46af_846D_937E5A1E3949": return "Description";
-
-                    // ID
-                    case "_19_0_3_91b028d_1579272245466_691733_672": return "string";
-
-                    // DataItemTypeEnum
-                    case "_19_0_3_45f01b9_1579563576485_587701_22033": return "string";
-
-                    // DataItemSubTypeEnum
-                    case "_19_0_3_45f01b9_1579563592155_977172_22064": return "string";
-
-                    default:
-
-                        string dataType = null;
-
-                        var dataClass = ModelHelper.GetClass(xmiDocument, typeId);
-                        if (dataClass != null)
-                        {
-                            if (ModelHelper.IsValueClass(dataClass))
-                            {
-                                dataType = ModelHelper.GetValueType(xmiDocument, dataClass);
-                            }
-                            else
-                            {
-                                dataType = dataClass.Name;
-                            }
-                        }
-
-
-                        //var dataType = ModelHelper.GetClassName(xmiDocument, typeId);
-                        if (string.IsNullOrEmpty(dataType)) dataType = ModelHelper.GetEnumName(xmiDocument, typeId);
-                        if (string.IsNullOrEmpty(dataType)) dataType = "string";
-                        return dataType;
-                }
+                //var dataType = ModelHelper.GetClassName(xmiDocument, typeId);
+                if (string.IsNullOrEmpty(dataType)) dataType = ModelHelper.GetEnumName(xmiDocument, typeId);
+                if (string.IsNullOrEmpty(dataType)) dataType = "string";
+                return dataType;
             }
 
             return null;

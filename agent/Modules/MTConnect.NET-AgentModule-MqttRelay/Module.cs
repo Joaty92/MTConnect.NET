@@ -977,7 +977,7 @@ namespace MTConnect
                                         {
                                             multipleObservations.Add(CloneAsObservation(conditionObservation));
                                         }
-                                    
+
                                         var result = await _entityServer.PublishObservations(_mqttClient, multipleObservations);
                                         if (result != null && result.IsSuccess)
                                         {

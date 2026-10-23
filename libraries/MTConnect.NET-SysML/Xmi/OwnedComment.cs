@@ -9,7 +9,8 @@ namespace MTConnect.SysML.Xmi
     /// </summary>
     [Serializable, XmlRoot(ElementName = XmiHelper.XmiStructure.OWNED_COMMENT, Namespace = "")]
     [XmlInclude(typeof(UmlComment))]
-    public class OwnedComment : XmiElement {
+    public class OwnedComment : XmiElement
+    {
         /// <summary>
         /// <c>body</c> attribute
         /// </summary>

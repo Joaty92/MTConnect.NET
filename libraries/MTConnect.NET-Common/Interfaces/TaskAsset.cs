@@ -50,12 +50,12 @@ namespace MTConnect.Interfaces
         /// <param name="mtconnectVersion">The MTConnect version the response document is being generated for.</param>
         protected override IAsset OnProcess(Version mtconnectVersion)
         {
-			if (mtconnectVersion != null && mtconnectVersion >= MTConnectVersions.Version13)
-			{
-				return this;
-			}
+            if (mtconnectVersion != null && mtconnectVersion >= MTConnectVersions.Version13)
+            {
+                return this;
+            }
 
-			return null;
-		}
+            return null;
+        }
     }
 }

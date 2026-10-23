@@ -69,33 +69,32 @@ namespace MTConnect.SysML.CSharp
                             {
                                 foreach (var property in classModel.Properties)
                                 {
-                                    switch (property.DataType)
+                                    // Delegate the named-type primitive / coordinate-struct
+                                    // remap to PrimitiveTypeMap so the table is shared with
+                                    // MTConnectPropertyModel.ParseType and reachable from
+                                    // the test project. Non-primitive names fall through
+                                    // to the class / enum lookup below — same semantics as
+                                    // the pre-extraction switch default arm.
+                                    var primitive = PrimitiveTypeMap.MapByTypeName(property.DataType);
+                                    if (primitive != null)
                                     {
-                                        case "UnitsEnum": property.DataType = "string"; break;
-                                        case "NativeUnitsEnum": property.DataType = "string"; break;
-                                        case "MeasurementCodeEnum": property.DataType = "string"; break;
-                                        case "UNIT_VECTOR_3D": property.DataType = "MTConnect.UnitVector3D"; break;
-                                        case "POSITION_3D": property.DataType = "MTConnect.Position3D"; break;
-                                        case "DEGREE_3D": property.DataType = "MTConnect.Degree3D"; break;
-                                        case "MILLIMETER_3D": property.DataType = "MTConnect.Millimeter3D"; break;
-                                        case "QIFDocument": property.DataType = "string"; break;
-                                        default:
-
-                                            var classMatch = dClassModels.GetValueOrDefault(property.DataType);
-                                            if (classMatch != null)
+                                        property.DataType = primitive;
+                                    }
+                                    else
+                                    {
+                                        var classMatch = dClassModels.GetValueOrDefault(property.DataType);
+                                        if (classMatch != null)
+                                        {
+                                            property.DataType = $"{NamespaceHelper.GetNamespace(classMatch.Id)}.I{classMatch.Name}";
+                                        }
+                                        else
+                                        {
+                                            var enumMatch = dEnumModels.GetValueOrDefault(property.DataType);
+                                            if (enumMatch != null)
                                             {
-                                                property.DataType = $"{NamespaceHelper.GetNamespace(classMatch.Id)}.I{classMatch.Name}";
+                                                property.DataType = $"{NamespaceHelper.GetNamespace(enumMatch.Id)}.{enumMatch.Name}";
                                             }
-                                            else
-                                            {
-                                                var enumMatch = dEnumModels.GetValueOrDefault(property.DataType);
-                                                if (enumMatch != null)
-                                                {
-                                                    property.DataType = $"{NamespaceHelper.GetNamespace(enumMatch.Id)}.{enumMatch.Name}";
-                                                }
-                                            }
-
-                                            break;                               
+                                        }
                                     }
                                 }
                             }
@@ -810,7 +809,7 @@ namespace MTConnect.SysML.CSharp
 
 
         private static string ConvertUnitEnum(string input)
-        {           
+        {
             var output = input;
 
             if (output != null)

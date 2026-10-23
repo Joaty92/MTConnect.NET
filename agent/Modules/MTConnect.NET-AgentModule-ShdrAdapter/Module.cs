@@ -132,13 +132,13 @@ namespace MTConnect.Modules
 
                 if (configuration.OutputConnectionInformation)
                 {
-					// Initialize Adapter URI Observation
-					var adapterUriDataItem = adapterComponent.GetDataItemByType(AdapterUriDataItem.TypeId);
-					if (adapterUriDataItem != null && initializeDataItems)
-					{
-						_mtconnectAgent.AddObservation(adapterUriDataItem, adapterComponent.Uri);
-					}
-				}
+                    // Initialize Adapter URI Observation
+                    var adapterUriDataItem = adapterComponent.GetDataItemByType(AdapterUriDataItem.TypeId);
+                    if (adapterUriDataItem != null && initializeDataItems)
+                    {
+                        _mtconnectAgent.AddObservation(adapterUriDataItem, adapterComponent.Uri);
+                    }
+                }
 
                 // Create new SHDR Adapter Client to read from SHDR stream
                 var adapterClient = new ShdrAdapterClient(configuration, _mtconnectAgent, device, idSuffix);
@@ -160,9 +160,9 @@ namespace MTConnect.Modules
                     _mtconnectAgent.AddObservation(connectionStatusDataItem, ConnectionStatus.LISTEN);
                 }
 
-				// Start the Adapter Client
-				adapterClient.Start();
-			}
+                // Start the Adapter Client
+                adapterClient.Start();
+            }
         }
 
 
@@ -181,8 +181,8 @@ namespace MTConnect.Modules
             if (_configuration.AvailableOnConnection)
             {
                 var availabilityDataItem = adapterClient.Device.GetDataItemByType(AvailabilityDataItem.TypeId);
-				_mtconnectAgent.AddObservation(availabilityDataItem, Availability.AVAILABLE);
-			}
+                _mtconnectAgent.AddObservation(availabilityDataItem, Availability.AVAILABLE);
+            }
 
             Log(MTConnectLogLevel.Information, $"ID = " + adapterClient.Id + " : " + message);
         }
@@ -198,14 +198,14 @@ namespace MTConnect.Modules
                 _mtconnectAgent.AddObservation(connectionStatusDataItem, ConnectionStatus.CLOSED);
             }
 
-			// Set Availability (if AvailableOnConnection = TRUE)
-			if (_configuration.AvailableOnConnection)
-			{
-				var availabilityDataItem = adapterClient.Device.GetDataItemByType(AvailabilityDataItem.TypeId);
-				_mtconnectAgent.AddObservation(availabilityDataItem, Availability.UNAVAILABLE);
-			}
+            // Set Availability (if AvailableOnConnection = TRUE)
+            if (_configuration.AvailableOnConnection)
+            {
+                var availabilityDataItem = adapterClient.Device.GetDataItemByType(AvailabilityDataItem.TypeId);
+                _mtconnectAgent.AddObservation(availabilityDataItem, Availability.UNAVAILABLE);
+            }
 
-			Log(MTConnectLogLevel.Information, $"ID = " + adapterClient.Id + " : " + message);
+            Log(MTConnectLogLevel.Information, $"ID = " + adapterClient.Id + " : " + message);
         }
 
         private void AdapterConnectionError(object sender, Exception exception)

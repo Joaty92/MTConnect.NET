@@ -1,4 +1,5 @@
 ﻿using MTConnect.SysML.Xmi;
+using MTConnect.SysML.Xmi.Navigation;
 using MTConnect.SysML.Xmi.UML;
 using System;
 using System.Collections.Generic;
@@ -85,6 +86,30 @@ namespace MTConnect.SysML
         /// </summary>
         public Version MinimumVersion { get; set; }
 
+        /// <summary>
+        /// Raw <c>deprecated</c> version literal captured from the
+        /// <see cref="MTConnect.SysML.Xmi.Profile.Normative"/> stereotype
+        /// on the source UML class (vendored from mtconnect/
+        /// MtconnectTranspiler v2.8), or <c>null</c> when the class is
+        /// not deprecated on its Normative stereotype. Preserved as a
+        /// string so the exact upstream literal (e.g. <c>"1.4"</c> vs
+        /// <c>"1.4.0"</c>) round-trips into the emitted
+        /// <c>[Obsolete("Deprecated in v{Version}")]</c> attribute.
+        /// </summary>
+        public string Deprecated { get; set; }
+
+        /// <summary>
+        /// OCL constraint bodies attached to the source UML class,
+        /// captured via <see cref="MTConnect.SysML.Xmi.UML.UmlConstraint.Body"/>.
+        /// One entry per <c>&lt;ownedRule xmi:type='uml:Constraint'&gt;</c>
+        /// whose specification supplies a non-empty body. Empty when the
+        /// class carries no constraints or when every constraint has an
+        /// empty body. Enables downstream <c>Rules[]</c> emission on the
+        /// generated class so the raw OCL expressions can be inspected
+        /// at runtime rather than discarded during code-generation.
+        /// </summary>
+        public string[] Rules { get; set; } = Array.Empty<string>();
+
 
         /// <summary>
         /// Creates an empty model for manual population.
@@ -133,6 +158,23 @@ namespace MTConnect.SysML
                 // non-null but empty, FirstOrDefault returns null and `.Body` would NRE.
                 var description = umlClass.Comments?.FirstOrDefault()?.Body;
                 Description = ModelHelper.ProcessDescription(description);
+
+                // Normative.Deprecated (v2.8 widening) — read straight through
+                // as the raw string version. See property XML doc for why the
+                // legacy Version.TryParse path is deliberately skipped.
+                Deprecated = MTConnectVersion.LookupNormativeDeprecated(xmiDocument, umlClass.Id);
+
+                // Rules[] from UML constraint bodies. Filter out entries with
+                // null / empty bodies so a stereotyped-only constraint (no OCL
+                // specification child) does not surface as an empty rule.
+                // Preserve source-declaration order — the OCL specification is
+                // spec-authored and the ordering is meaningful for consumers
+                // that report violations back to the operator.
+                var constraintBodies = umlClass.Constraints?
+                    .Where(c => !string.IsNullOrEmpty(c?.Body))
+                    .Select(c => c.Body)
+                    .ToArray();
+                Rules = constraintBodies ?? Array.Empty<string>();
 
                 // Load Properties — guard `o.Name != null` per element. The
                 // outer `?.` only protects the collection; an element with null Name
@@ -291,10 +333,30 @@ namespace MTConnect.SysML
             // and silently swallowed pathological cycles if a cap had been
             // present.
 
-            // Build the local-id set once — mutate it as grafts land, so the
-            // subsequent existence check is O(1) instead of O(n).
-            var localUmlIds = new HashSet<string>(
-                classes.Where(c => !string.IsNullOrEmpty(c.UmlId)).Select(c => c.UmlId));
+            // Ambient-aware known-parent set. When an IdCacheContext is
+            // active on this thread — the intended installation site is
+            // MTConnectModel.Parse, so every per-package parser sees a
+            // shared cache — seed the known-UmlId set from the ambient
+            // dictionary so a dangling parent already parsed by a sibling
+            // package parser is recognised without a redundant graft. When
+            // no context is active the ambient dictionary is absent and
+            // behaviour reduces to the previous per-call scratch HashSet
+            // (parity with the pre-vendor behaviour). This is the consumer
+            // swap that lets the O(1) hash-lookup replace the per-call
+            // O(n) scan; the vendored IdCacheContext / IdCacheContextHolder
+            // pair supplies the thread-scoped storage.
+            var ambient = IdCacheContextHolder.Current;
+            var localUmlIds = new HashSet<string>();
+            if (ambient != null)
+            {
+                foreach (var key in ambient.IdCache.Keys) localUmlIds.Add(key);
+            }
+            foreach (var c in classes)
+            {
+                if (string.IsNullOrEmpty(c.UmlId)) continue;
+                localUmlIds.Add(c.UmlId);
+                ambient?.AddToCache(c.UmlId, c);
+            }
 
             // Dedupe missing parents via HashSet.Add rather than GroupBy/First —
             // same first-wins semantics with one allocation instead of an
@@ -363,6 +425,15 @@ namespace MTConnect.SysML
                 grafted.Properties = new List<MTConnectPropertyModel>();
 
                 classes.Add(grafted);
+
+                // Register the graft in the ambient cache so a subsequent
+                // ResolveDanglingParents call on a sibling package's class
+                // list sees the newly-grafted parent as already-known and
+                // does not re-graft it. No-op when no context is active.
+                if (!string.IsNullOrEmpty(grafted.UmlId))
+                {
+                    ambient?.AddToCache(grafted.UmlId, grafted);
+                }
             }
         }
     }

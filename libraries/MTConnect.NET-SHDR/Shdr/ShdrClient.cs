@@ -119,9 +119,9 @@ namespace MTConnect.Shdr
         /// <summary>
         /// Raised when an SHDR Command message is received from the Adapter
         /// </summary>
-        #pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
+#pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
         public event EventHandler<string> CommandReceived;
-        #pragma warning restore CS0067
+#pragma warning restore CS0067
 
 
         /// <summary>Creates an unconfigured SHDR client with a fresh random <see cref="Id"/> and the heartbeat-on-change suppression enabled.</summary>

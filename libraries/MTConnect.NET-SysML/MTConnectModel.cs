@@ -2,6 +2,7 @@
 using MTConnect.SysML.Models.Devices;
 using MTConnect.SysML.Models.Observations;
 using MTConnect.SysML.Xmi;
+using MTConnect.SysML.Xmi.Navigation;
 using System.Collections.Generic;
 using System.Threading;
 
@@ -81,9 +82,20 @@ namespace MTConnect.SysML
                     // (preserves the v2.5 dry-run zero-diff guarantee) and absorbs future XMI additions without
                     // code changes here. CollectClassLists is the single place to register additional sub-models'
                     // class lists if/when they begin to surface dangling references.
-                    foreach (var (classes, idPrefix) in CollectClassLists(mtconnectModel))
+                    //
+                    // The IdCacheContext installed here scopes an ambient
+                    // known-UmlId cache across every ResolveDanglingParents
+                    // call below so a parent class already grafted (or
+                    // parsed) in a sibling package list is recognised on
+                    // subsequent lists without a redundant XMI lookup or a
+                    // duplicate graft. Vendored from
+                    // mtconnect/MtconnectTranspiler v2.8.
+                    using (new IdCacheContext())
                     {
-                        MTConnectClassModel.ResolveDanglingParents(doc, classes, idPrefix);
+                        foreach (var (classes, idPrefix) in CollectClassLists(mtconnectModel))
+                        {
+                            MTConnectClassModel.ResolveDanglingParents(doc, classes, idPrefix);
+                        }
                     }
 
                     return mtconnectModel;

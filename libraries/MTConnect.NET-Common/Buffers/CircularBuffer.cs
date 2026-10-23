@@ -17,7 +17,7 @@ namespace MTConnect.Buffers
 
         public uint Capacity
         {
-            get 
+            get
             {
                 lock (_lock) return (uint)_buffer.Length;
             }
@@ -93,7 +93,7 @@ namespace MTConnect.Buffers
                     ++_size;
                     _full = _size == _buffer.Length;
                 }
-            }     
+            }
         }
     }
 }

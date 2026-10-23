@@ -1,171 +1,147 @@
-// Copyright (c) 2023 TrakHound Inc., All Rights Reserved.
+// Copyright (c) 2026 TrakHound Inc., All Rights Reserved.
 // TrakHound Inc. licenses this file to you under the MIT license.
 
 using MTConnect.Observations;
 using MTConnect.Observations.Output;
+using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace MTConnect.Streams.Json
 {
     /// <summary>
-    /// Typed representation of a Condition list on a Component stream,
-    /// bucketed by Condition level (Fault, Warning, Normal, Unavailable).
+    /// Sequence of Condition observations in the cppagent JSON v2 shape:
+    /// a flat JSON array of single-key <see cref="JsonConditionWrapper"/>
+    /// objects, one wrapper per observation, in insertion order.
     /// </summary>
     /// <remarks>
-    /// Serialized via <see cref="JsonConditionsConverter"/> in the
-    /// cppagent JSON v2 wire shape: an array of single-key wrapper
-    /// objects, one per Condition entry
-    /// (e.g. <c>[{"Normal": {...}}, {"Warning": {...}}]</c>).
-    /// The level order on the wire is fixed at Fault, Warning, Normal,
-    /// Unavailable; mixed-level interleaving is not round-trip preserved
-    /// through this typed model. The legacy MTConnect JSON v1
-    /// object-keyed shape (<c>{"Fault": [...], "Warning": [...], ...}</c>)
-    /// is still accepted on the read path for back-compat.
+    /// The type shape IS the wire shape — <see cref="JsonConditions"/>
+    /// inherits <see cref="List{T}"/> of <see cref="JsonConditionWrapper"/>
+    /// so System.Text.Json's default serializer handles both directions
+    /// with no custom converter. Emitting bytes:
+    /// <code>[{"Normal":{...}},{"Warning":{...}},{"Fault":{...}}]</code>
+    /// requires only that each wrapper carries exactly one non-null
+    /// property (enforced by convention, not by runtime validation) and
+    /// that the four properties on <see cref="JsonConditionWrapper"/> are
+    /// annotated with
+    /// <c>[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]</c>.
+    /// <para>
+    /// Element ordering on the wire follows list insertion order. The
+    /// <see cref="JsonConditions(IEnumerable{IObservationOutput})"/> ctor
+    /// preserves the historical level-order emission
+    /// (<c>FAULT</c> → <c>WARNING</c> → <c>NORMAL</c> → <c>UNAVAILABLE</c>,
+    /// source order within each level) so this rewrite is byte-identical
+    /// on the wire to the pre-refactor converter output for the same
+    /// observation input <b>when the emission pipeline supplies the same
+    /// <see cref="System.Text.Json.JsonSerializerOptions"/> the converter
+    /// path used</b> (in particular, per-property
+    /// <c>[JsonIgnore(WhenWritingNull)]</c> makes wrapper output single-key
+    /// regardless of the ambient <c>DefaultIgnoreCondition</c>). Callers
+    /// constructing via the copy ctor or direct
+    /// <see cref="List{T}.Add(T)"/> control ordering explicitly.
+    /// </para>
     /// </remarks>
-    [System.Text.Json.Serialization.JsonConverter(typeof(JsonConditionsConverter))]
-    public class JsonConditions
+    public sealed class JsonConditions : List<JsonConditionWrapper>
     {
         /// <summary>
-        /// Materializes every level bucket into a flat list of
-        /// <see cref="IObservation"/> instances, tagged with the
-        /// corresponding <see cref="ConditionLevel"/>. Enumeration order
-        /// matches the wire-emission order: Fault, then Warning, then
-        /// Normal, then Unavailable.
+        /// Initializes an empty container for JSON deserialization or
+        /// programmatic construction via <see cref="List{T}.Add(T)"/>.
+        /// </summary>
+        public JsonConditions() { }
+
+        /// <summary>
+        /// Initializes the container with a pre-built sequence of
+        /// wrappers. Order is preserved from
+        /// <paramref name="wrappers"/>.
+        /// </summary>
+        /// <param name="wrappers">
+        /// The wrapper sequence to seed the list with. A
+        /// <see langword="null"/> reference is treated as an empty
+        /// sequence.
+        /// </param>
+        public JsonConditions(IEnumerable<JsonConditionWrapper> wrappers)
+            : base(wrappers ?? Array.Empty<JsonConditionWrapper>())
+        {
+        }
+
+        /// <summary>
+        /// Initializes the container from an observation-output
+        /// sequence, wrapping each observation in the single-key wrapper
+        /// for its level. Preserves the historical level-order emission
+        /// (<c>FAULT</c> → <c>WARNING</c> → <c>NORMAL</c> → <c>UNAVAILABLE</c>,
+        /// source order within each level) so the wire output is
+        /// byte-identical to the pre-refactor converter for the same
+        /// input.
+        /// </summary>
+        /// <param name="observations">
+        /// The observation-output sequence to project into wrappers. A
+        /// <see langword="null"/> reference and <see langword="null"/>
+        /// entries are skipped; entries whose
+        /// <see cref="ValueKeys.Level"/> value does not match a
+        /// <see cref="ConditionLevel"/> arm are dropped (matches the
+        /// pre-refactor converter). The sequence is enumerated exactly
+        /// once: the ctor buffers it into a local list before the four
+        /// level-partition passes so caller-supplied lazy / deferred
+        /// enumerables (LINQ queries, generators) are not re-evaluated.
+        /// </param>
+        public JsonConditions(IEnumerable<IObservationOutput> observations)
+        {
+            if (observations == null) return;
+
+            // Buffer once — the four level partitions each need a full
+            // pass, and caller-supplied lazy sequences (LINQ queries,
+            // generators, side-effecting iterators) must not be
+            // re-evaluated.
+            var buffered = new List<IObservationOutput>();
+            foreach (var observation in observations)
+            {
+                if (observation != null) buffered.Add(observation);
+            }
+
+            AppendLevel(buffered, LevelNameFault, JsonConditionWrapper.OfFault);
+            AppendLevel(buffered, LevelNameWarning, JsonConditionWrapper.OfWarning);
+            AppendLevel(buffered, LevelNameNormal, JsonConditionWrapper.OfNormal);
+            AppendLevel(buffered, LevelNameUnavailable, JsonConditionWrapper.OfUnavailable);
+        }
+
+        /// <summary>
+        /// Materializes every wrapper into a flat
+        /// <see cref="List{T}"/> of <see cref="IObservation"/>, in list
+        /// insertion order. Wrappers whose four level properties are all
+        /// <see langword="null"/> are skipped. Not serialized.
         /// </summary>
         [JsonIgnore]
         public List<IObservation> Observations
         {
             get
             {
-                var l = new List<IObservation>();
-
-                if (!Fault.IsNullOrEmpty())
+                var result = new List<IObservation>(Count);
+                foreach (var wrapper in this)
                 {
-                    foreach (var x in Fault) l.Add(x.ToCondition(ConditionLevel.FAULT));
+                    var observation = wrapper?.ToObservation();
+                    if (observation != null) result.Add(observation);
                 }
-
-                if (!Warning.IsNullOrEmpty())
-                {
-                    foreach (var x in Warning) l.Add(x.ToCondition(ConditionLevel.WARNING));
-                }
-
-                if (!Normal.IsNullOrEmpty())
-                {
-                    foreach (var x in Normal) l.Add(x.ToCondition(ConditionLevel.NORMAL));
-                }
-
-                if (!Unavailable.IsNullOrEmpty())
-                {
-                    foreach (var x in Unavailable) l.Add(x.ToCondition(ConditionLevel.UNAVAILABLE));
-                }
-
-                return l;
+                return result;
             }
         }
 
-        /// <summary>
-        /// Condition entries at <c>FAULT</c> level. Source order is
-        /// preserved within the bucket; entries are emitted on the wire
-        /// as <c>{"Fault": {...}}</c> wrapper objects, ahead of every
-        /// other level.
-        /// </summary>
-        [JsonPropertyName("Fault")]
-        public IEnumerable<JsonCondition> Fault { get; set; }
+        // Level names materialised once — enum ToString() would
+        // otherwise allocate a fresh string per AppendLevel call.
+        private const string LevelNameFault = nameof(ConditionLevel.FAULT);
+        private const string LevelNameWarning = nameof(ConditionLevel.WARNING);
+        private const string LevelNameNormal = nameof(ConditionLevel.NORMAL);
+        private const string LevelNameUnavailable = nameof(ConditionLevel.UNAVAILABLE);
 
-        /// <summary>
-        /// Condition entries at <c>WARNING</c> level. Source order is
-        /// preserved within the bucket; entries are emitted on the wire
-        /// as <c>{"Warning": {...}}</c> wrapper objects, after Fault
-        /// and before Normal.
-        /// </summary>
-        [JsonPropertyName("Warning")]
-        public IEnumerable<JsonCondition> Warning { get; set; }
-
-        /// <summary>
-        /// Condition entries at <c>NORMAL</c> level. Source order is
-        /// preserved within the bucket; entries are emitted on the wire
-        /// as <c>{"Normal": {...}}</c> wrapper objects, after Warning
-        /// and before Unavailable.
-        /// </summary>
-        [JsonPropertyName("Normal")]
-        public IEnumerable<JsonCondition> Normal { get; set; }
-
-        /// <summary>
-        /// Condition entries at <c>UNAVAILABLE</c> level. Source order
-        /// is preserved within the bucket; entries are emitted on the
-        /// wire as <c>{"Unavailable": {...}}</c> wrapper objects, after
-        /// every other level.
-        /// </summary>
-        [JsonPropertyName("Unavailable")]
-        public IEnumerable<JsonCondition> Unavailable { get; set; }
-
-
-        /// <summary>
-        /// Initializes an empty instance for JSON deserialization.
-        /// </summary>
-        public JsonConditions() { }
-
-        /// <summary>
-        /// Initializes the container from an observation-output
-        /// sequence, partitioning each observation into the
-        /// Fault/Warning/Normal/Unavailable bucket indicated by its
-        /// <c>Level</c> value-bag entry.
-        /// </summary>
-        public JsonConditions(IEnumerable<IObservationOutput> observations)
+        private void AppendLevel(
+            List<IObservationOutput> observations,
+            string levelName,
+            Func<JsonCondition, JsonConditionWrapper> factory)
         {
-            if (observations != null)
+            foreach (var observation in observations)
             {
-                if (!observations.IsNullOrEmpty())
+                if (observation.GetValue(ValueKeys.Level) == levelName)
                 {
-                    // Add Fault
-                    var levelObservations = observations.Where(o => o.GetValue(ValueKeys.Level) == ConditionLevel.FAULT.ToString());
-                    if (!levelObservations.IsNullOrEmpty())
-                    {
-                        var jsonObservations = new List<JsonCondition>();
-                        foreach (var observation in levelObservations)
-                        {
-                            jsonObservations.Add(new JsonCondition(observation));
-                        }
-                        Fault = jsonObservations;
-                    }
-
-                    // Add Warning
-                    levelObservations = observations.Where(o => o.GetValue(ValueKeys.Level) == ConditionLevel.WARNING.ToString());
-                    if (!levelObservations.IsNullOrEmpty())
-                    {
-                        var jsonObservations = new List<JsonCondition>();
-                        foreach (var observation in levelObservations)
-                        {
-                            jsonObservations.Add(new JsonCondition(observation));
-                        }
-                        Warning = jsonObservations;
-                    }
-
-                    // Add Normal
-                    levelObservations = observations.Where(o => o.GetValue(ValueKeys.Level) == ConditionLevel.NORMAL.ToString());
-                    if (!levelObservations.IsNullOrEmpty())
-                    {
-                        var jsonObservations = new List<JsonCondition>();
-                        foreach (var observation in levelObservations)
-                        {
-                            jsonObservations.Add(new JsonCondition(observation));
-                        }
-                        Normal = jsonObservations;
-                    }
-
-                    // Add Unavailable
-                    levelObservations = observations.Where(o => o.GetValue(ValueKeys.Level) == ConditionLevel.UNAVAILABLE.ToString());
-                    if (!levelObservations.IsNullOrEmpty())
-                    {
-                        var jsonObservations = new List<JsonCondition>();
-                        foreach (var observation in levelObservations)
-                        {
-                            jsonObservations.Add(new JsonCondition(observation));
-                        }
-                        Unavailable = jsonObservations;
-                    }
+                    Add(factory(new JsonCondition(observation)));
                 }
             }
         }

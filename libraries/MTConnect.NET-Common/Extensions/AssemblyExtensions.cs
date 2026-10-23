@@ -25,7 +25,7 @@ namespace MTConnect.Extensions
         /// Code taken from https://stackoverflow.com/questions/7889228/how-to-prevent-reflectiontypeloadexception-when-calling-assembly-gettypes
         /// </remarks>
         public static IReadOnlyCollection<Type> GetMatchingTypesInAssembly(
-            this Assembly assembly, 
+            this Assembly assembly,
             Predicate<Type> predicate)
         {
             var types = new List<Type>();

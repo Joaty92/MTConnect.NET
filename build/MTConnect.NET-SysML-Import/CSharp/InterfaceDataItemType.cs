@@ -32,7 +32,7 @@ namespace MTConnect.SysML.CSharp
         /// literal.</param>
         /// <param name="subClasses">Optional sub-classes.</param>
         public InterfaceDataItemType(XmiDocument xmiDocument, string category, string idPrefix, UmlClass umlClass, UmlEnumerationLiteral umlEnumerationLiteral, IEnumerable<UmlClass> subClasses = null)
-            : base (xmiDocument, category, idPrefix, umlClass, umlEnumerationLiteral, subClasses) { }
+            : base(xmiDocument, category, idPrefix, umlClass, umlEnumerationLiteral, subClasses) { }
 
 
         /// <summary>

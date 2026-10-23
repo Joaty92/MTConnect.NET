@@ -202,9 +202,9 @@ namespace MTConnect.Agents
         /// <summary>
         /// Raised when a new Asset is attempted to be added to the Agent
         /// </summary>
-        #pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
+#pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
         public event EventHandler<IAsset> AssetReceived;
-        #pragma warning restore CS0067
+#pragma warning restore CS0067
 
         /// <summary>
         /// Raised when a new Asset is added to the Agent
@@ -290,6 +290,8 @@ namespace MTConnect.Agents
             _uuid = !string.IsNullOrEmpty(uuid) ? uuid : Guid.NewGuid().ToString();
             _instanceId = instanceId > 0 ? instanceId : CreateInstanceId();
             _configuration = configuration != null ? configuration : new AgentConfiguration();
+            if (!string.IsNullOrEmpty(_configuration.Sender))
+                _sender = _configuration.Sender;
             _information = new MTConnectAgentInformation(_uuid, _instanceId, _deviceModelChangeTime);
             _deviceModelChangeTime = deviceModelChangeTime;
             _mtconnectVersion = _configuration != null && _configuration.DefaultVersion != null ? _configuration.DefaultVersion : MTConnectVersions.Max;
@@ -1343,15 +1345,15 @@ namespace MTConnect.Agents
                         foreach (var genericComponent in genericComponents)
                         {
                             var validationResults = new ValidationResult(false, $"Invalid Component : \"{genericComponent.Type}\" Not Found");
-                            if (_configuration.InputValidationLevel > InputValidationLevel.Ignore)
+                            if (_configuration.DeviceValidationLevel > DeviceValidationLevel.Ignore)
                             {
                                 MulticastIsolation.Raise(InvalidComponentAdded, h => h(obj.Uuid, genericComponent, validationResults));
 
                                 // Remove Component from Device
-                                if (_configuration.InputValidationLevel == InputValidationLevel.Remove) obj.RemoveComponent(genericComponent.Id);
+                                if (_configuration.DeviceValidationLevel == DeviceValidationLevel.Remove) obj.RemoveComponent(genericComponent.Id);
 
                                 // Invalidate entire Device
-                                if (_configuration.InputValidationLevel == InputValidationLevel.Strict) return null;
+                                if (_configuration.DeviceValidationLevel == DeviceValidationLevel.Strict) return null;
                             }
                         }
                     }
@@ -1363,15 +1365,15 @@ namespace MTConnect.Agents
                         foreach (var genericComposition in genericCompositions)
                         {
                             var validationResults = new ValidationResult(false, $"Invalid Composition : \"{genericComposition.Type}\" Not Found");
-                            if (_configuration.InputValidationLevel > InputValidationLevel.Ignore)
+                            if (_configuration.DeviceValidationLevel > DeviceValidationLevel.Ignore)
                             {
                                 MulticastIsolation.Raise(InvalidCompositionAdded, h => h(obj.Uuid, genericComposition, validationResults));
 
                                 // Remove Compsition from Device
-                                if (_configuration.InputValidationLevel == InputValidationLevel.Remove) obj.RemoveComposition(genericComposition.Id);
+                                if (_configuration.DeviceValidationLevel == DeviceValidationLevel.Remove) obj.RemoveComposition(genericComposition.Id);
 
                                 // Invalidate entire Device
-                                if (_configuration.InputValidationLevel == InputValidationLevel.Strict) return null;
+                                if (_configuration.DeviceValidationLevel == DeviceValidationLevel.Strict) return null;
                             }
                         }
                     }
@@ -1383,15 +1385,15 @@ namespace MTConnect.Agents
                         foreach (var genericDataItem in genericDataItems)
                         {
                             var validationResults = new ValidationResult(false, $"Invalid DataItem : \"{genericDataItem.Type}\" Not Found");
-                            if (_configuration.InputValidationLevel > InputValidationLevel.Ignore)
+                            if (_configuration.DeviceValidationLevel > DeviceValidationLevel.Ignore)
                             {
                                 MulticastIsolation.Raise(InvalidDataItemAdded, h => h(obj.Uuid, genericDataItem, validationResults));
 
                                 // Remove DataItem from Device
-                                if (_configuration.InputValidationLevel == InputValidationLevel.Remove) obj.RemoveDataItem(genericDataItem.Id);
+                                if (_configuration.DeviceValidationLevel == DeviceValidationLevel.Remove) obj.RemoveDataItem(genericDataItem.Id);
 
                                 // Invalidate entire Device
-                                if (_configuration.InputValidationLevel == InputValidationLevel.Strict) return null;
+                                if (_configuration.DeviceValidationLevel == DeviceValidationLevel.Strict) return null;
                             }
                         }
                     }
@@ -2189,6 +2191,28 @@ namespace MTConnect.Agents
                 var dataItem = GetDataItem(deviceUuid, input.DataItemKey);
                 if (dataItem != null)
                 {
+                    // Coerce a null, empty, or whitespace-only Result to UNAVAILABLE according to the
+                    // target DataItem's value class per the MTConnect Standard, Part 2 - Devices
+                    // Information Model. The classification is derived once from the DataItem's
+                    // Category, Representation, and Type; the coerce fires only for value classes
+                    // whose Result grammar forbids an empty string.
+                    //
+                    //   * Numeric (all Samples; numeric-typed Events per the SysML model): the
+                    //     "Sample MUST always be reported in float" requirement leaves no room for a
+                    //     non-parseable value.
+                    //   * Enumeration (Events whose Type has a controlled vocabulary): the Result MUST
+                    //     be a member of that vocabulary. The AllowEmptyResultForEnumEvents flag lets
+                    //     integrators opt out of the coerce for compatibility with adapters that emit
+                    //     empty values for these Events.
+                    //   * String (free-form Event Types such as PROGRAM, MESSAGE, TOOL_ID,
+                    //     ASSET_CHANGED): the standard's Observation::result default value type is
+                    //     `string` and does not forbid the empty string; the SDK preserves the Result
+                    //     verbatim, matching the behaviour of the reference C++ agent.
+                    if (ShouldCoerceEmptyResultToUnavailable(dataItem, input))
+                    {
+                        CoerceEmptyResultToUnavailable(input);
+                    }
+
                     // Add required properties
                     switch (dataItem.Representation)
                     {
@@ -2311,6 +2335,65 @@ namespace MTConnect.Agents
             }
 
             return false;
+        }
+
+
+        /// <summary>
+        /// Returns true when the observation's Result value is null, the empty string, or whitespace-only,
+        /// AND the DataItem's value class forbids an empty Result under the active configuration.
+        /// </summary>
+        /// <remarks>
+        /// Numeric-typed DataItems (Samples and the numeric-typed Events enumerated in the MTConnect
+        /// Standard SysML) are coerced unconditionally: the Result MUST be parseable as a number.
+        /// Enumeration-typed Events are coerced by default; setting
+        /// <see cref="IAgentConfiguration.AllowEmptyResultForEnumEvents"/> to <c>true</c> preserves the
+        /// empty Result for compatibility with adapters that emit empty values for these Events.
+        /// Free-form String Event Types (PROGRAM, MESSAGE, TOOL_ID, ASSET_CHANGED, and every other
+        /// non-vocabulary Type) are never coerced: the standard's default value type for
+        /// <c>Observation::result</c> is <c>string</c> and does not forbid the empty string.
+        /// </remarks>
+        private bool ShouldCoerceEmptyResultToUnavailable(IDataItem dataItem, IObservationInput input)
+        {
+            if (dataItem == null || input == null) return false;
+            if (dataItem.Category == DataItemCategory.CONDITION) return false;
+            if (!IsEmptyResult(input)) return false;
+
+            var valueClass = DataItem.GetValueClass(dataItem);
+            switch (valueClass)
+            {
+                case DataItemValueClass.Numeric: return true;
+                case DataItemValueClass.Enumeration: return !_configuration.AllowEmptyResultForEnumEvents;
+                default: return false;
+            }
+        }
+
+        /// <summary>
+        /// Returns true when the observation's Result value is null, the empty string, or whitespace-only.
+        /// </summary>
+        private static bool IsEmptyResult(IObservationInput input)
+        {
+            var result = input.GetValue(ValueKeys.Result);
+            if (result == null) return true;
+            return string.IsNullOrWhiteSpace(result);
+        }
+
+        /// <summary>
+        /// Rewrites the observation's Result value to <see cref="Observation.Unavailable"/> and flags the input as unavailable.
+        /// </summary>
+        /// <remarks>
+        /// Removes any prior Result entry (so the Values collection does not carry a duplicate ValueKey),
+        /// adds the UNAVAILABLE sentinel, and sets <see cref="IObservationInput.IsUnavailable"/> so downstream
+        /// consumers that branch on the flag observe the coerced state. Spec authority: MTConnect Part 2
+        /// Devices Information Model - Observation Information Model - Representation - Observation Values.
+        /// </remarks>
+        private static void CoerceEmptyResultToUnavailable(IObservationInput input)
+        {
+            var preserved = (input.Values ?? Enumerable.Empty<ObservationValue>())
+                .Where(v => v.Key != ValueKeys.Result)
+                .ToList();
+            input.Values = preserved;
+            input.AddValue(ValueKeys.Result, Observation.Unavailable);
+            input.IsUnavailable = true;
         }
 
 

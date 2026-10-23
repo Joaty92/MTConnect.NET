@@ -45,5 +45,5 @@ namespace MTConnect.Streams.Output
         /// Gets All Observations (Samples, Events, and Conditions)
         /// </summary>
         IObservationOutput[] Observations { get; }
-    }  
+    }
 }

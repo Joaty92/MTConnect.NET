@@ -49,6 +49,54 @@ non-draft PR against `master` (drafts skip; flipping ready fires the
 run on `ready_for_review`).
 
 **Matrix:** `ubuntu-latest` × `windows-latest`, .NET SDK `8.0.x` + `9.0.x`.
+The `format` gate is single-legged (`ubuntu-latest`) because
+`dotnet format`'s output is deterministic across OSes — running it
+on both would only pay the wall-clock twice for the same result.
+
+### Job 0 — `format`
+
+Verifies the whole tree is byte-identical to `dotnet format`'s
+whitespace / C# formatting output, so indentation, brace placement,
+and trailing-whitespace drift cannot silently reaccumulate into the
+baseline. Runs on `ubuntu-latest`, installs both .NET 8.0.x and
+9.0.x (the same pair the build / test / docs / e2e jobs use), and
+does not depend on any other job — a formatting-only fix therefore
+gets fast feedback without waiting on the unit + integration matrix.
+
+1. Checkout (`actions/checkout`).
+2. Setup .NET (`actions/setup-dotnet`) — installs both 8.0.x and 9.0.x.
+3. `dotnet restore MTConnect.NET.sln`.
+4. `dotnet format MTConnect.NET.sln --verify-no-changes --no-restore --verbosity diagnostic`
+   — exits non-zero on any diff; `--verbosity diagnostic` names each
+   offending file and rule directly in the CI log so a contributor
+   can reproduce and fix locally without further tooling.
+5. `dotnet restore` + `dotnet format --verify-no-changes` for the two
+   template csprojs that are not solution members
+   (`templates/mtconnect.net-agent/MTConnect-NET-Agent-Template.csproj`
+   and `.../content/MTConnect.NET-Embedded-Agent/Agent.csproj`). Both
+   ship to downstream consumers via `dotnet new`, so their formatting
+   is user-facing and belongs under the same gate.
+
+The gate enforces `dotnet format`'s default `warn` severity, not
+`--severity info`: at `info`, `dotnet format` additionally auto-fixes
+long-standing Roslyn analyzer diagnostics (`CA1859`, `CA1861`,
+`CA1018`, ...) across the whole repo, which is a materially larger
+undertaking than whitespace verification (and, on the SDK / analyzer
+combination this repo targets, occasionally aborts mid-run with
+`NotSupportedException`). Analyzer-diagnostic cleanup is tracked as
+its own follow-up rather than folded into this gate.
+
+**Local reproduction:** `dotnet format MTConnect.NET.sln` (autofix)
+or `dotnet format MTConnect.NET.sln --verify-no-changes --verbosity diagnostic`
+(dry-run, exits non-zero on any diff — the same invocation CI uses).
+The repo does not yet ship a root `.editorconfig`; the gate therefore
+relies on the SDK's built-in formatting defaults, and a future SDK
+release that shifts those defaults will re-fire the gate on unchanged
+code. Freezing the ruleset with a committed `.editorconfig` +
+`global.json` SDK pin is a tracked follow-up (see the format-baseline
+PR description).
+
+### Jobs 1–4 — build, test, docs, route-check
 
 **Steps:**
 
@@ -95,6 +143,22 @@ package-write privileges.
   surfaces known failures (XSD-1.1 features + missing xlink imports).
   The sweep is opt-in via
   `dotnet test tests/Compliance/MTConnect-Compliance-Tests/MTConnect-Compliance-Tests.csproj --filter "Category=XsdLoadStrict"`.
+
+## CI workflow — `release-pack` (multi-TFM Release-pack gate)
+
+Sibling job in `.github/workflows/dotnet.yml`. Runs on every push to `master` and every non-draft PR. Executes `dotnet pack MTConnect.NET.sln -c Release` across the full net461 → net9.0 TFM matrix — a stricter surface than `build-test-coverage`, because Release configuration enables NuGet package generation (`.nupkg` + `.snupkg`), rich API doc surfaces on every TFM, and the multi-TFM `SupportedOSPlatform` / `LangVersion` gates the Debug matrix does not exercise.
+
+**Purpose:** guard against the class of regressions the 2026-05-22 landing bypassed — a Debug-only CI floor let CS-family Release-only diagnostics ship as PR-level warnings that only surfaced during release packaging. The gate turns every such regression into a red PR check.
+
+**Exit contract:** must be RC=0 (zero errors, zero MSBuild-shaped diagnostics — every `error XX0000` / `warning XX0000` family, e.g. CS / CA / NU / SYSLIB / MSB / NETSDK / IL / StyleCop / xUnit / NUnit / third-party analyzers) to merge. The remaining MSB3277 assembly-conflict + NETSDK1138 EOL-TFM + transitive-package net461-compat build-summary warnings are pre-existing and are not tracked by this gate; the FLOOR is only against new code-level diagnostics. When the pack fails, the `Surface pack errors` step renders a step-summary table of the unique matching lines (capped at 100 with an explicit truncation breadcrumb naming the full total).
+
+**Local repro** (matches CI):
+
+```bash
+dotnet pack MTConnect.NET.sln -c Release
+```
+
+The command runs across every TFM configured in each project's `TargetFrameworks`. Failing quickly on net461 (the strictest TFM for `SupportedOSPlatform` / `LangVersion` guards) is the fastest sanity check when triaging a Release-only diagnostic locally.
 
 ## Why the integration project is a separate CI step
 

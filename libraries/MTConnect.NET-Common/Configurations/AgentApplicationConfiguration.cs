@@ -16,15 +16,7 @@ namespace MTConnect.Configurations
     public class AgentApplicationConfiguration : AgentConfiguration, IAgentApplicationConfiguration
     {
         /// <summary>
-        /// Optional static UUID to assign to the Agent meta-device. When set,
-        /// this value overrides the per-boot <c>Guid.NewGuid()</c> default
-        /// applied by <see cref="MTConnect.Agents.MTConnectAgentInformation"/>'s
-        /// parameterless constructor and survives restarts without relying on
-        /// <c>agent.information.json</c> being present on disk. Corresponds to
-        /// <c>AgentDeviceUUID</c> in the cppagent reference implementation.
-        /// Per MTConnect v2.7 XSD <c>UuidType</c>, the uuid identifies the
-        /// element "for its entire life" — <c>Header.instanceId</c> is the
-        /// per-boot discriminator.
+        /// Optional static UUID to assign to the Agent meta-device. Must parse as an RFC 4122 UUID — any format <c>Guid.TryParse</c> accepts (hyphenated <c>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</c>, braced, parenthesized, bare-hex, hex-braced) is normalized to the canonical hyphenated form. Surrounding whitespace is trimmed. Malformed, all-zero (<c>Guid.Empty</c> / RFC 4122 nil), or unparseable values are rejected on startup with a warning that reports only the value's length (never the raw content), and the resolver falls through to the next path: (1) validated override, else (2) validated <c>agent.information.json</c> persisted state, else (3) a deterministic UUID v5 derived from <c>ServiceName</c> + machine name so the meta-device UUID survives restarts even in ephemeral-container deployments. Corresponds to <c>AgentDeviceUUID</c> in the cppagent reference implementation. Per MTConnect v2.7 XSD <c>UuidType</c>, the uuid identifies the element "for its entire life" — <c>Header.instanceId</c> is the per-boot discriminator.
         /// </summary>
         [JsonPropertyName("agentUuid")]
         public string AgentUuid { get; set; }

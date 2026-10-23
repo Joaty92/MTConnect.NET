@@ -32,10 +32,10 @@ namespace MTConnect.Devices
         string Hash { get; }
 
 
-		/// <summary>
-		/// The text description that describes what the DataItem Type represents
-		/// </summary>
-		string TypeDescription { get; }
+        /// <summary>
+        /// The text description that describes what the DataItem Type represents
+        /// </summary>
+        string TypeDescription { get; }
 
         /// <summary>
         /// The text description that describes what the DataItem SubType represents

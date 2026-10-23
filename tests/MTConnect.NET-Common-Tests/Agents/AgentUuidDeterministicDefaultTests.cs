@@ -195,5 +195,84 @@ namespace MTConnect.Tests.Common.Agents
             Assert.That(uuidA, Is.Not.EqualTo(uuidB),
                 "Different agentName values must produce distinct UUID v5 values.");
         }
+
+        // ---------------------------------------------------------------
+        // RFC 4122 §4.3 bit-layout invariants — the sibling test pins
+        // only the version digit; these extend the pin to the variant
+        // bits (byte 8) that <see cref="DeterministicAgentUuid.DeriveFromSeed"/>
+        // sets to <c>0b10xx_xxxx</c>. Together the two tests characterise
+        // every masked bit in the RFC 4122 §4.3 layout.
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// The 9th octet of a derived UUID v5 must have its top two bits
+        /// set to <c>10</c> — the "RFC 4122 variant" that
+        /// <see cref="DeterministicAgentUuid.DeriveFromSeed"/> stamps into
+        /// <c>clock_seq_hi_and_reserved</c>. Decodes the third hex byte of
+        /// the 4th hyphen group and asserts the top two bits directly, so
+        /// a regression that swaps the mask (e.g. <c>0x40</c> for the
+        /// deprecated NCS variant) is caught by an obvious contradiction.
+        /// </summary>
+        [Test]
+        public void DeriveFromSeed_output_has_RFC_4122_variant_high_bits_10()
+        {
+            var uuid = DeterministicAgentUuid.DeriveFromSeed("example.com");
+
+            var parts = uuid.Split('-');
+            Assert.That(parts.Length, Is.EqualTo(5));
+
+            // Group 4 is clock_seq_hi_and_reserved (1 byte) + clock_seq_low (1 byte).
+            // The variant bits sit in the top 2 bits of clock_seq_hi_and_reserved,
+            // i.e. the first hex byte of parts[3].
+            var clockSeqHi = Convert.ToByte(parts[3].Substring(0, 2), 16);
+            var variantBits = (clockSeqHi & 0xC0) >> 6;
+
+            Assert.That(variantBits, Is.EqualTo(0b10),
+                $"RFC 4122 variant requires top two bits of octet 9 = '10'; got 0x{clockSeqHi:X2} " +
+                $"(variant bits = 0b{Convert.ToString(variantBits, 2).PadLeft(2, '0')}).");
+        }
+
+        /// <summary>
+        /// Deterministic derivation must be sensitive to the port
+        /// component of the seed: same <c>agentName</c> and
+        /// <c>hostname</c> but different <c>port</c> ⇒ different UUID.
+        /// Pins the port participation the class doc-comment promises
+        /// ("<c>agent:name:port</c>") — a regression that drops the port
+        /// from the seed would collide co-located agents on the same
+        /// host + name that only differ by listener port.
+        /// </summary>
+        [Test]
+        public void Derive_port_change_produces_different_uuid_for_same_agent_name()
+        {
+            const string AgentName = "fixture-det-agent-port";
+            const string Hostname = "canonical-host";
+
+            var derivedAt5000 = DeterministicAgentUuid.Derive(AgentName, Hostname, port: 5000);
+            var derivedAt8080 = DeterministicAgentUuid.Derive(AgentName, Hostname, port: 8080);
+
+            Assert.That(derivedAt5000, Is.Not.EqualTo(derivedAt8080),
+                "Changing the port MUST change the derived UUID — port is part of the seed contract.");
+        }
+
+        /// <summary>
+        /// <c>port: 0</c> — the documented sentinel used when the listener
+        /// port is not available at the call site — must not collide with
+        /// any positive port for the same <c>agentName</c> / hostname.
+        /// Pins the sentinel's uniqueness in the port axis so a regression
+        /// that treats <c>0</c> as "omit" cannot silently collide with a
+        /// real port-1 deployment.
+        /// </summary>
+        [Test]
+        public void Derive_port_zero_sentinel_does_not_collide_with_any_positive_port()
+        {
+            const string AgentName = "fixture-det-agent-port-zero";
+            const string Hostname = "canonical-host";
+
+            var derivedAtZero = DeterministicAgentUuid.Derive(AgentName, Hostname, port: 0);
+            var derivedAtOne = DeterministicAgentUuid.Derive(AgentName, Hostname, port: 1);
+
+            Assert.That(derivedAtZero, Is.Not.EqualTo(derivedAtOne),
+                "port: 0 sentinel must be distinct from port: 1 — 0 is not silently 'omit'.");
+        }
     }
 }

@@ -4,8 +4,11 @@
 namespace MTConnect.Agents
 {
     /// <summary>
-    /// Controls how the Agent reacts when input data fails validation against
-    /// the device model.
+    /// Controls how the Agent reacts when an observation or asset input fails per-DataItem validation
+    /// against the DataItem's Type. Device-shape validation (Component, Composition, DataItem) is
+    /// governed by <see cref="DeviceValidationLevel"/> so integrators can pick each axis independently
+    /// — for example, <c>InputValidationLevel = Strict</c> alongside <c>DeviceValidationLevel = Warning</c>
+    /// to reject bad observations while tolerating minor device-model shape drift.
     /// </summary>
     public enum InputValidationLevel
     {

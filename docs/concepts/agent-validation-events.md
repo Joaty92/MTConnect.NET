@@ -24,16 +24,28 @@ The family is closed across the five Device-tree element kinds plus the top-leve
 
 ```mermaid
 flowchart TB
-  Input["Add input (Device / Observation / Asset)"] --> Validate{"Validate"}
-  Validate -- pass --> Apply["Apply to agent state"]
-  Validate -- fail --> Decide{"InputValidationLevel"}
-  Decide -- Ignore --> Apply
-  Decide -- Warn --> RaiseW["Raise Invalid*Added"]
-  Decide -- Remove --> RaiseR["Raise Invalid*Added + remove subtree"]
-  Decide -- Strict --> RaiseS["Raise Invalid*Added + reject whole Device"]
-  RaiseW --> Apply
-  RaiseR --> Apply
+  Input["Add input"] --> Kind{"Kind"}
+  Kind -- Device shape<br/>(Component / Composition / DataItem) --> ValidateD{"Validate"}
+  Kind -- Observation / Asset --> ValidateI{"Validate"}
+  ValidateD -- pass --> Apply["Apply to agent state"]
+  ValidateD -- fail --> DecideD{"DeviceValidationLevel"}
+  DecideD -- Ignore --> Apply
+  DecideD -- Warning --> RaiseDW["Raise Invalid&lt;Component/Composition/DataItem&gt;Added"]
+  DecideD -- Remove --> RaiseDR["Raise Invalid*Added + prune subtree"]
+  DecideD -- Strict --> RaiseDS["Raise Invalid*Added + reject whole Device"]
+  ValidateI -- pass --> Apply
+  ValidateI -- fail --> DecideI{"InputValidationLevel"}
+  DecideI -- Ignore --> Apply
+  DecideI -- Warning --> RaiseIW["Raise InvalidObservationAdded / InvalidAssetAdded"]
+  DecideI -- Remove --> RaiseIR["Raise Invalid*Added + drop input"]
+  DecideI -- Strict --> RaiseIS["Raise Invalid*Added + reject the input"]
+  RaiseDW --> Apply
+  RaiseDR --> Apply
+  RaiseIW --> Apply
+  RaiseIR --> Apply
 ```
+
+The two axes are independent — a common integrator profile is `InputValidationLevel = Strict` alongside `DeviceValidationLevel = Warning`, so bad observations are rejected while minor device-model shape drift is merely logged.
 
 ## Consumer POV
 
@@ -42,7 +54,7 @@ flowchart TB
 `MTConnectAgent` is a long-running service. Throwing on the first invalid Component or stray Observation would crash the host process and take the rest of the agent down with it. The event-based contract lets callers:
 
 - log the failure (with the rich [`ValidationResult`](/api/MTConnect.ValidationResult) payload) and keep serving valid data;
-- decide centrally how strict to be — set [`InputValidationLevel`](/api/MTConnect.Agents.InputValidationLevel) to `Ignore`, `Warn`, `Remove`, or `Strict` on the agent configuration, and the same handler runs across every level above `Ignore`;
+- decide centrally how strict to be — set [`DeviceValidationLevel`](/api/MTConnect.Agents.DeviceValidationLevel) (governing Component / Composition / DataItem shape) or [`InputValidationLevel`](/api/MTConnect.Agents.InputValidationLevel) (governing Observation / Asset input) to `Ignore`, `Warning`, `Remove`, or `Strict` on the agent configuration, and the same handler runs across every level above `Ignore`;
 - attribute the failure to the source `deviceUuid` so multi-device hosts can route the diagnostic appropriately.
 
 ### Wire-up
@@ -59,7 +71,11 @@ using MTConnect.Observations;
 
 var agent = new MTConnectAgent(new AgentConfiguration
 {
-    InputValidationLevel = InputValidationLevel.Warn,
+    // Two independent axes: device-model shape (Component, Composition, DataItem) vs
+    // observation / asset input. A typical integrator profile is `InputValidationLevel = Strict`
+    // alongside `DeviceValidationLevel = Warning`.
+    DeviceValidationLevel = DeviceValidationLevel.Warning,
+    InputValidationLevel = InputValidationLevel.Warning,
 });
 
 agent.InvalidDeviceAdded += (device, result) =>
@@ -123,12 +139,12 @@ agent.AddDevice(device);
 
 ### What happens to the rejected input
 
-The handler runs first; what the agent does next depends on `InputValidationLevel`:
+The handler runs first; what the agent does next depends on the applicable knob — [`DeviceValidationLevel`](/api/MTConnect.Agents.DeviceValidationLevel) for `InvalidComponentAdded` / `InvalidCompositionAdded` / `InvalidDataItemAdded` / `InvalidDeviceAdded`, and [`InputValidationLevel`](/api/MTConnect.Agents.InputValidationLevel) for `InvalidObservationAdded` / `InvalidAssetAdded`:
 
 - **`Ignore`** — the event does not fire, and the input is kept. Useful only for debugging.
-- **`Warn`** — the event fires; the input is kept.
-- **`Remove`** — the event fires; the offending node is pruned from its parent (e.g. `device.RemoveDataItem(id)`).
-- **`Strict`** — the event fires; the entire Device is rejected (the `AddDevice` call returns `false` and no part of the tree is added).
+- **`Warning`** — the event fires; the input is kept.
+- **`Remove`** — the event fires; the offending node is pruned from its parent (e.g. `device.RemoveDataItem(id)`), or the input is dropped for the observation / asset case.
+- **`Strict`** — the event fires; the entire Device is rejected (the `AddDevice` call returns `false` and no part of the tree is added), or the observation / asset input is rejected.
 
 ## Contributor POV
 
@@ -144,16 +160,27 @@ The event family is designed to grow. When a new element class becomes validatab
 
 1. Add the delegate to [`libraries/MTConnect.NET-Common/Delegates.cs`](https://github.com/TrakHound/MTConnect.NET/blob/master/libraries/MTConnect.NET-Common/Delegates.cs). The first parameter is normally the `deviceUuid`; the second is the offending element; the third is the `ValidationResult`. (`InvalidAssetAdded` is the documented exception — assets are not tied to a single device, so the asset itself stands in for the device UUID.)
 2. Add the event to `MTConnectAgent` next to the existing five, with an XML doc-comment that mirrors the others (`/// <summary>Raised when an Invalid <Noun> is Added</summary>`).
-3. At the Add* call site, raise the event when the validation result fails and `_configuration.InputValidationLevel > InputValidationLevel.Ignore`:
+3. At the Add* call site, gate the event on the axis appropriate to the noun — device-shape validators (Invalid Component / Composition / DataItem / Device) branch on `_configuration.DeviceValidationLevel`; observation / asset validators branch on `_configuration.InputValidationLevel`:
 
    ```csharp
+   // Device-shape example — new "DeviceModel" noun gates on DeviceValidationLevel.
+   if (!validationResult.IsValid)
+   {
+       if (_configuration.DeviceValidationLevel > DeviceValidationLevel.Ignore)
+       {
+           InvalidDeviceModelAdded?.Invoke(deviceUuid, deviceModel, validationResult);
+       }
+       if (_configuration.DeviceValidationLevel == DeviceValidationLevel.Strict) return null;
+   }
+
+   // Observation / asset example — new noun gates on InputValidationLevel instead.
    if (!validationResult.IsValid)
    {
        if (_configuration.InputValidationLevel > InputValidationLevel.Ignore)
        {
-           InvalidDeviceModelAdded?.Invoke(deviceUuid, deviceModel, validationResult);
+           InvalidObservationLikeAdded?.Invoke(deviceUuid, dataItemKey, validationResult);
        }
-       if (_configuration.InputValidationLevel == InputValidationLevel.Strict) return null;
+       if (_configuration.InputValidationLevel == InputValidationLevel.Strict) return false;
    }
    ```
 
@@ -163,7 +190,9 @@ The event family is designed to grow. When a new element class becomes validatab
    [Test]
    public void InvalidDeviceModelAdded_fires_and_the_device_is_not_added()
    {
-       var agent = new MTConnectAgent(new AgentConfiguration { InputValidationLevel = InputValidationLevel.Strict });
+       // DeviceModel is a device-shape noun, so the test gates on
+       // DeviceValidationLevel — the same axis step 3 wires the raise-site to.
+       var agent = new MTConnectAgent(new AgentConfiguration { DeviceValidationLevel = DeviceValidationLevel.Strict });
        var fired = false;
        agent.InvalidDeviceModelAdded += (_, _, _) => fired = true;
 
@@ -180,4 +209,5 @@ The event family is designed to grow. When a new element class becomes validatab
 - [v7 migration: ValidationResult consolidation](/migration/v7-validation-result) — how the three pre-v7 per-domain structs collapsed into the universal `MTConnect.ValidationResult` used by every member of this family.
 - [TrakHound/MTConnect.NET#169](https://github.com/TrakHound/MTConnect.NET/pull/169) — the canonical worked example of extending the family (adds `InvalidDeviceAdded`, `ValidateDevice`, and the `DeviceNull` / `DeviceUuidMissing` codes).
 - [`MTConnectAgent`](/api/MTConnect.Agents.MTConnectAgent) — the surface where every entry lives.
-- [`InputValidationLevel`](/api/MTConnect.Agents.InputValidationLevel) — the agent-wide knob that gates whether the family fires at all.
+- [`DeviceValidationLevel`](/api/MTConnect.Agents.DeviceValidationLevel) — the agent-wide knob that gates the device-shape validators (Invalid Component / Composition / DataItem / Device).
+- [`InputValidationLevel`](/api/MTConnect.Agents.InputValidationLevel) — the agent-wide knob that gates the observation and asset validators (Invalid Observation / Asset).

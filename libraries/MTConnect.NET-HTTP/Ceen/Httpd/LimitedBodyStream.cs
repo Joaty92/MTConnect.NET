@@ -153,16 +153,29 @@ namespace Ceen.Httpd
             var buf = new byte[1024 * 8];
             while (m_bytesleft > 0)
             {
-#if NET9_0_OR_GREATER
-                await ReadExactlyAsync(buf, 0, buf.Length, cancellationToken);
-#else
-                await ReadAsync(buf, 0, buf.Length, cancellationToken);
-#endif
+                // CA2022 short-read handling — TFM-uniform. Every supported TFM
+                // lands on the same shape: loop ReadAsync until the transport
+                // signals EOF (return 0) or the whole body is drained. ReadAsync
+                // may return fewer bytes than requested on multi-segment TCP
+                // arrivals; the loop keeps calling until m_bytesleft hits zero
+                // (drain complete → return true) or a 0-byte read indicates
+                // premature EOF (return false so the caller can propagate the
+                // drain failure to the outer HTTP handler).
+                //
+                // Do NOT re-introduce a ReadExactlyAsync-into-fixed-buffer shape
+                // on any TFM: when the remaining body is smaller than buf.Length
+                // (the common case on the final iteration and on any body
+                // smaller than 8 KB), ReadExactlyAsync throws
+                // EndOfStreamException and propagates up through the outer
+                // HttpServer catch, killing keep-alive and 500-ing the client.
+                var read = await ReadAsync(buf, 0, buf.Length, cancellationToken);
+                if (read == 0)
+                    return false;
             }
 
             return true;
         }
-#endregion
+        #endregion
     }
 }
 

@@ -64,7 +64,7 @@ namespace MTConnect.Servers.Http
                 acceptEncodings = ProcessAcceptEncodings(acceptEncodings);
 
                 var mtconnectResponse = await OnRequestReceived(context, cancellationToken);
-                mtconnectResponse.WriteDuration = await WriteResponse(mtconnectResponse, context.Response, acceptEncodings);
+                mtconnectResponse.WriteDuration = await WriteResponse(mtconnectResponse, context.Response, acceptEncodings, cancellationToken);
 
                 ResponseSent.Raise(this, mtconnectResponse, ClientException);
 
@@ -102,7 +102,7 @@ namespace MTConnect.Servers.Http
         /// <summary>
         /// Write a MTConnectHttpResponse to the HttpListenerResponse Output Stream
         /// </summary>
-        protected async Task<double> WriteResponse(MTConnectHttpResponse mtconnectResponse, IHttpResponse httpResponse, IEnumerable<string> acceptEncodings = null)
+        protected async Task<double> WriteResponse(MTConnectHttpResponse mtconnectResponse, IHttpResponse httpResponse, IEnumerable<string> acceptEncodings = null, CancellationToken cancellationToken = default)
         {
             var stpw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -113,7 +113,7 @@ namespace MTConnect.Servers.Http
                     httpResponse.ContentType = mtconnectResponse.ContentType;
                     httpResponse.StatusCode = (Ceen.HttpStatusCode)mtconnectResponse.StatusCode;
 
-                    await WriteToStream(mtconnectResponse.Content, httpResponse, acceptEncodings);
+                    await WriteToStream(mtconnectResponse.Content, httpResponse, acceptEncodings, cancellationToken);
                 }
                 catch { }
             }
@@ -125,7 +125,7 @@ namespace MTConnect.Servers.Http
         /// <summary>
         /// Write a string to the HttpListenerResponse Output Stream
         /// </summary>
-        protected async Task WriteResponse(string content, IHttpResponse httpResponse, Ceen.HttpStatusCode statusCode, string contentType = MimeTypes.XML, IEnumerable<string> acceptEncodings = null)
+        protected async Task WriteResponse(string content, IHttpResponse httpResponse, Ceen.HttpStatusCode statusCode, string contentType = MimeTypes.XML, IEnumerable<string> acceptEncodings = null, CancellationToken cancellationToken = default)
         {
             if (httpResponse != null)
             {
@@ -135,13 +135,13 @@ namespace MTConnect.Servers.Http
                     httpResponse.StatusCode = statusCode;
 
                     var contentStream = new MemoryStream(Encoding.UTF8.GetBytes(content));
-                    await WriteToStream(contentStream, httpResponse, acceptEncodings);
+                    await WriteToStream(contentStream, httpResponse, acceptEncodings, cancellationToken);
                 }
                 catch { }
             }
         }
 
-        protected async Task WriteToStream(Stream inputStream, IHttpResponse httpResponse, IEnumerable<string> acceptEncodings = null)
+        protected async Task WriteToStream(Stream inputStream, IHttpResponse httpResponse, IEnumerable<string> acceptEncodings = null, CancellationToken cancellationToken = default)
         {
             if (httpResponse != null && inputStream != null && inputStream.Length > 0)
             {
@@ -163,7 +163,7 @@ namespace MTConnect.Servers.Http
                             inputStream.CopyTo(zip);
                         }
                         outputStream.Seek(0, SeekOrigin.Begin);
-                        await httpResponse.WriteAllAsync(outputStream);
+                        await httpResponse.WriteAllAsync(outputStream, cancellationToken);
                     }
 
 #if NET5_0_OR_GREATER
@@ -179,7 +179,7 @@ namespace MTConnect.Servers.Http
                             inputStream.CopyTo(zip);
                         }
                         outputStream.Seek(0, SeekOrigin.Begin);
-                        await httpResponse.WriteAllAsync(outputStream);
+                        await httpResponse.WriteAllAsync(outputStream, cancellationToken);
                     }
 #endif
 
@@ -195,12 +195,12 @@ namespace MTConnect.Servers.Http
                             inputStream.CopyTo(zip);
                         }
                         outputStream.Seek(0, SeekOrigin.Begin);
-                        await httpResponse.WriteAllAsync(outputStream);
+                        await httpResponse.WriteAllAsync(outputStream, cancellationToken);
                     }
 
                     else
                     {
-                        await httpResponse.WriteAllAsync(inputStream);
+                        await httpResponse.WriteAllAsync(inputStream, cancellationToken);
                     }
                 }
                 catch { }

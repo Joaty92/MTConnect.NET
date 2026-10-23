@@ -54,7 +54,7 @@ namespace MTConnect.SysML.CSharp
         /// <param name="idPrefix">Identifier prefix applied to the
         /// rendered type.</param>
         /// <param name="umlClass">Backing UML class.</param>
-        public ComponentType(XmiDocument xmiDocument, string idPrefix, UmlClass umlClass) : base (xmiDocument, idPrefix, umlClass) { }
+        public ComponentType(XmiDocument xmiDocument, string idPrefix, UmlClass umlClass) : base(xmiDocument, idPrefix, umlClass) { }
 
 
         /// <summary>

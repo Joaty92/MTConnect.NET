@@ -88,16 +88,16 @@ namespace MTConnect.Adapters
         /// <summary>
         /// Raised when new data is sent to the Agent. Includes the AgentClient ID and the Line sent as an argument.
         /// </summary>
-        #pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
+#pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
         public event EventHandler<AdapterEventArgs<string>> DataSent;
-        #pragma warning restore CS0067
+#pragma warning restore CS0067
 
         /// <summary>
         /// Raised when an error occurs when sending a new line to the Agent. Includes the AgentClient ID and the Error message as an argument.
         /// </summary>
-        #pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
+#pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
         public event EventHandler<AdapterEventArgs<string>> SendError;
-        #pragma warning restore CS0067
+#pragma warning restore CS0067
 
 
         /// <summary>
@@ -373,8 +373,8 @@ namespace MTConnect.Adapters
                     }
 
                     // If using Buffer, Add to Buffer
-                    
-                    
+
+
                     // -- Need to add Mode property?
 
 
@@ -461,7 +461,7 @@ namespace MTConnect.Adapters
                 var success = Write(newObservation);
                 if (success)
                 {
-                   // Update Last Sent DataItems
+                    // Update Last Sent DataItems
                     UpdateLastObservations(new List<IObservationInput> { newObservation });
                 }
 

@@ -52,10 +52,10 @@ namespace MTConnect.Servers.Http
         public event EventHandler<X509Certificate2> ServerCertificateLoaded;
 
 
-        #pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
+#pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
         /// <summary>Raised for each diagnostic log line emitted by the underlying Ceen HTTP listener (intentionally spelled <c>ServerLogRecevied</c> for API compatibility).</summary>
         public event EventHandler<string> ServerLogRecevied;
-        #pragma warning restore CS0067
+#pragma warning restore CS0067
 
         /// <summary>
         /// Event for when an error occurs with the HttpListener

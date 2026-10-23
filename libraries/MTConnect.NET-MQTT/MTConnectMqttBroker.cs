@@ -60,18 +60,18 @@ namespace MTConnect.Mqtt
         /// <summary>Raised by the underlying <see cref="MqttServer"/> when a downstream MQTT client disconnects.</summary>
         public event EventHandler ClientDisconnected;
 
-        #pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
+#pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
         /// <summary>Raised after each successful publish; the argument is the topic name.</summary>
         public event EventHandler<string> MessageSent;
-        #pragma warning restore CS0067
+#pragma warning restore CS0067
 
         /// <summary>Raised when the broker's connection to its underlying transport fails.</summary>
         public event EventHandler<Exception> ConnectionError;
 
-        #pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
+#pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
         /// <summary>Raised when a publish fails after the connection has been established.</summary>
         public event EventHandler<Exception> PublishError;
-        #pragma warning restore CS0067
+#pragma warning restore CS0067
 
 
         /// <summary>

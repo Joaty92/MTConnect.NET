@@ -52,6 +52,15 @@ namespace MTConnect.SysML.Models.Devices
         /// </summary>
         public Version MinimumVersion { get; set; }
 
+        /// <summary>
+        /// Raw <c>deprecated</c> version literal captured from the
+        /// <see cref="MTConnect.SysML.Xmi.Profile.Normative"/> stereotype
+        /// (vendored from mtconnect/MtconnectTranspiler v2.8). See
+        /// <see cref="MTConnectClassModel.Deprecated"/> for the rationale
+        /// behind preserving the raw string.
+        /// </summary>
+        public string Deprecated { get; set; }
+
 
         /// <summary>
         /// Creates an empty model for manual population.
@@ -78,6 +87,7 @@ namespace MTConnect.SysML.Models.Devices
 
                 MaximumVersion = MTConnectVersion.LookupDeprecated(xmiDocument, umlEnumerationLiteral.Id);
                 MinimumVersion = MTConnectVersion.LookupNormative(xmiDocument, umlEnumerationLiteral.Id);
+                Deprecated = MTConnectVersion.LookupNormativeDeprecated(xmiDocument, umlEnumerationLiteral.Id);
 
                 var description = umlEnumerationLiteral.Comments?.FirstOrDefault().Body;
                 Description = ModelHelper.ProcessDescription(description);

@@ -50,7 +50,7 @@ namespace MTConnect.NET_JSON_cppagent_Tests.Regressions
         /// <param name="surface">The surface.</param>
         [TestCase(typeof(JsonMTConnectStreams), "envelope")]
         [TestCase(typeof(JsonMTConnectDevices), "envelope")]
-        [TestCase(typeof(JsonDevicesHeader),    "Header")]
+        [TestCase(typeof(JsonDevicesHeader), "Header")]
         public void SchemaVersion_property_exists_with_camelCase_json_key(
             System.Type carrier, string surface)
         {

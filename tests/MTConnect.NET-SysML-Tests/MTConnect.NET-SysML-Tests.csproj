@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>MTConnect.Tests.SysML</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <Nullable>annotations</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\libraries\MTConnect.NET-SysML\MTConnect.NET-SysML.csproj" />
+    <!--
+      The CSharp template renderer + Scriban templates live in the
+      SysML-Import Exe project. Referencing an Exe from a test project
+      pulls its assembly + template files into the tests' output. Its
+      Program.Main never runs — only its exported types
+      (CSharpTemplateRenderer, ClassModel, ComponentType, etc.) do.
+    -->
+    <ProjectReference Include="..\..\build\MTConnect.NET-SysML-Import\MTConnect.NET-SysML-Import.csproj" />
+  </ItemGroup>
+
+  <!--
+    Copy the CSharp Scriban templates into the tests bin directory so
+    TemplateLoader.LoadOrThrow (which resolves paths relative to
+    AppDomain.CurrentDomain.BaseDirectory) can find them. Mirrors the
+    same globbing shape as MTConnect.NET-SysML-Import.csproj.
+  -->
+  <ItemGroup>
+    <None Include="..\..\build\MTConnect.NET-SysML-Import\CSharp\Templates\**\*.scriban" Link="CSharp\Templates\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="Always" />
+  </ItemGroup>
+
+  <!--
+    Golden .g.cs fixtures live under Fixtures/ but must NEVER be
+    compiled as part of the test assembly — they are byte-for-byte
+    expected outputs of the Scriban render pipeline, not project code.
+    Remove them from the Compile item list first, then include them as
+    None with CopyToOutputDirectory=Always so the parity tests can read
+    them at runtime from TestContext.TestDirectory.
+  -->
+  <ItemGroup>
+    <Compile Remove="Fixtures\**\*" />
+    <None Include="Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="Always" />
+  </ItemGroup>
+
+</Project>

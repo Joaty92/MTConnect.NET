@@ -12,6 +12,19 @@
 		<PackageReference Include="Scriban" Version="7.2.2" />
 	</ItemGroup>
 
+	<!--
+	  Expose the emitter's internal template models (ClassModel,
+	  ComponentType, CompositionType, DataItemType, InterfaceDataItemType,
+	  ITemplateModel) to the SysML tests project so parity tests can
+	  construct in-memory models directly and drive RenderModel() /
+	  RenderInterface() against the golden fixtures under
+	  tests/MTConnect.NET-SysML-Tests/Fixtures/. Tests-only; production
+	  callers still see the internal boundary.
+	-->
+	<ItemGroup>
+		<InternalsVisibleTo Include="MTConnect.NET-SysML-Tests" />
+	</ItemGroup>
+
 	<ItemGroup>
 	  <ProjectReference Include="..\..\libraries\MTConnect.NET-SysML\MTConnect.NET-SysML.csproj" />
 	</ItemGroup>

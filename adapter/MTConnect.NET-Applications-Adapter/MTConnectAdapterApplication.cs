@@ -45,7 +45,7 @@ namespace MTConnect.Applications
 
 #if NET5_0_OR_GREATER
         /// <summary>NLog log-level applied to every internal logger.
-        /// Defaults to <see cref="LogLevel.Debug"/>; the <c>debug</c>
+        /// Defaults to <see cref="NLog.LogLevel.Debug"/>; the <c>debug</c>
         /// CLI command overrides it.</summary>
         protected LogLevel _logLevel = LogLevel.Debug;
 #else

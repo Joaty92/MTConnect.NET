@@ -218,66 +218,89 @@ public static class RouteInventory
     // imperatively inside OnRequestReceived, so the surface is encoded
     // structurally here to give the reference page meaningful columns;
     // the *summary text* still flows from /// on the handler class.
+    //
+    // Each handler's parameter list is a separate `private static readonly`
+    // field rather than an inline nested initializer inside the
+    // dictionary literal. `dotnet format` cannot indent an inline
+    // `new EndpointParam[] { ... }` nested inside a dictionary
+    // collection-initializer coherently — it deepens the outer keys
+    // but leaves the inner block at the old depth, producing a visible
+    // misalignment cascade. Hoisting the arrays flattens both layers to
+    // the same indent depth and keeps the formatter idempotent.
+    private static readonly EndpointParam[] ProbeParams =
+    {
+        new("deviceType", "Query", "string", null, "Optional device-type filter."),
+        new("version", "Query", "string", null, "Target MTConnect Standard version of the response document."),
+        new("documentFormat", "Query", "string", "xml", "Response document format (xml | json | json-cppagent)."),
+        new("validationLevel", "Query", "int", null, "0=ignore, 1=warning, 2=remove, 3=strict."),
+        new("indentOutput", "Query", "bool", null, "Pretty-print the response document."),
+        new("outputComments", "Query", "bool", null, "Emit comments / annotations in the response document."),
+    };
+
+    private static readonly EndpointParam[] CurrentParams =
+    {
+        new("path", "Query", "string", null, "XPath that filters the data items included in the response."),
+        new("at", "Query", "ulong", null, "Sequence number anchoring the snapshot."),
+        new("interval", "Query", "int", null, "Streaming interval in milliseconds; switches to multipart streaming when > 0."),
+        new("heartbeat", "Query", "int", "10000", "Heartbeat interval for the streaming response."),
+        new("deviceType", "Query", "string", null, "Optional device-type filter."),
+        new("version", "Query", "string", null, "Target MTConnect Standard version of the response document."),
+        new("documentFormat", "Query", "string", "xml", "Response document format."),
+        new("indentOutput", "Query", "bool", null, "Pretty-print the response document."),
+        new("outputComments", "Query", "bool", null, "Emit comments / annotations in the response document."),
+    };
+
+    private static readonly EndpointParam[] SampleParams =
+    {
+        new("path", "Query", "string", null, "XPath that filters the data items included in the response."),
+        new("from", "Query", "ulong", null, "Sequence number lower bound."),
+        new("to", "Query", "ulong", null, "Sequence number upper bound."),
+        new("count", "Query", "int", "100", "Maximum number of observations."),
+        new("interval", "Query", "int", null, "Streaming interval in milliseconds; switches to multipart streaming when > 0."),
+        new("heartbeat", "Query", "int", "10000", "Heartbeat interval for the streaming response."),
+        new("deviceType", "Query", "string", null, "Optional device-type filter."),
+        new("version", "Query", "string", null, "Target MTConnect Standard version of the response document."),
+        new("documentFormat", "Query", "string", "xml", "Response document format."),
+        new("indentOutput", "Query", "bool", null, "Pretty-print the response document."),
+        new("outputComments", "Query", "bool", null, "Emit comments / annotations in the response document."),
+    };
+
+    private static readonly EndpointParam[] AssetsParams =
+    {
+        new("type", "Query", "string", null, "Asset type filter (e.g. CuttingTool)."),
+        new("removed", "Query", "bool", null, "Include removed assets when true."),
+        new("count", "Query", "int", null, "Maximum number of assets."),
+        new("documentFormat", "Query", "string", "xml", "Response document format."),
+        new("indentOutput", "Query", "bool", null, "Pretty-print the response document."),
+    };
+
+    private static readonly EndpointParam[] AssetParams =
+    {
+        new("assetId", "Route", "string", null, "Asset identifier captured from the trailing path segment."),
+        new("documentFormat", "Query", "string", "xml", "Response document format."),
+    };
+
+    private static readonly EndpointParam[] PutParams =
+    {
+        new("(form / query)", "Body", "Dictionary<string,string>", null, "DataItemId=Value entries to enqueue as observations."),
+    };
+
+    private static readonly EndpointParam[] PostParams =
+    {
+        new("(body)", "Body", "string", null, "Asset document payload."),
+    };
+
     private static readonly IReadOnlyDictionary<string, IReadOnlyList<EndpointParam>> CeenHandlerParameters
         = new Dictionary<string, IReadOnlyList<EndpointParam>>
-    {
-        ["MTConnectProbeResponseHandler"] = new EndpointParam[]
         {
-            new("deviceType", "Query", "string", null, "Optional device-type filter."),
-            new("version", "Query", "string", null, "Target MTConnect Standard version of the response document."),
-            new("documentFormat", "Query", "string", "xml", "Response document format (xml | json | json-cppagent)."),
-            new("validationLevel", "Query", "int", null, "0=ignore, 1=warning, 2=remove, 3=strict."),
-            new("indentOutput", "Query", "bool", null, "Pretty-print the response document."),
-            new("outputComments", "Query", "bool", null, "Emit comments / annotations in the response document."),
-        },
-        ["MTConnectCurrentResponseHandler"] = new EndpointParam[]
-        {
-            new("path", "Query", "string", null, "XPath that filters the data items included in the response."),
-            new("at", "Query", "ulong", null, "Sequence number anchoring the snapshot."),
-            new("interval", "Query", "int", null, "Streaming interval in milliseconds; switches to multipart streaming when > 0."),
-            new("heartbeat", "Query", "int", "10000", "Heartbeat interval for the streaming response."),
-            new("deviceType", "Query", "string", null, "Optional device-type filter."),
-            new("version", "Query", "string", null, "Target MTConnect Standard version of the response document."),
-            new("documentFormat", "Query", "string", "xml", "Response document format."),
-            new("indentOutput", "Query", "bool", null, "Pretty-print the response document."),
-            new("outputComments", "Query", "bool", null, "Emit comments / annotations in the response document."),
-        },
-        ["MTConnectSampleResponseHandler"] = new EndpointParam[]
-        {
-            new("path", "Query", "string", null, "XPath that filters the data items included in the response."),
-            new("from", "Query", "ulong", null, "Sequence number lower bound."),
-            new("to", "Query", "ulong", null, "Sequence number upper bound."),
-            new("count", "Query", "int", "100", "Maximum number of observations."),
-            new("interval", "Query", "int", null, "Streaming interval in milliseconds; switches to multipart streaming when > 0."),
-            new("heartbeat", "Query", "int", "10000", "Heartbeat interval for the streaming response."),
-            new("deviceType", "Query", "string", null, "Optional device-type filter."),
-            new("version", "Query", "string", null, "Target MTConnect Standard version of the response document."),
-            new("documentFormat", "Query", "string", "xml", "Response document format."),
-            new("indentOutput", "Query", "bool", null, "Pretty-print the response document."),
-            new("outputComments", "Query", "bool", null, "Emit comments / annotations in the response document."),
-        },
-        ["MTConnectAssetsResponseHandler"] = new EndpointParam[]
-        {
-            new("type", "Query", "string", null, "Asset type filter (e.g. CuttingTool)."),
-            new("removed", "Query", "bool", null, "Include removed assets when true."),
-            new("count", "Query", "int", null, "Maximum number of assets."),
-            new("documentFormat", "Query", "string", "xml", "Response document format."),
-            new("indentOutput", "Query", "bool", null, "Pretty-print the response document."),
-        },
-        ["MTConnectAssetResponseHandler"] = new EndpointParam[]
-        {
-            new("assetId", "Route", "string", null, "Asset identifier captured from the trailing path segment."),
-            new("documentFormat", "Query", "string", "xml", "Response document format."),
-        },
-        ["MTConnectPutResponseHandler"] = new EndpointParam[]
-        {
-            new("(form / query)", "Body", "Dictionary<string,string>", null, "DataItemId=Value entries to enqueue as observations."),
-        },
-        ["MTConnectPostResponseHandler"] = new EndpointParam[]
-        {
-            new("(body)", "Body", "string", null, "Asset document payload."),
-        },
-    };
+            ["MTConnectProbeResponseHandler"] = ProbeParams,
+            ["MTConnectCurrentResponseHandler"] = CurrentParams,
+            ["MTConnectSampleResponseHandler"] = SampleParams,
+            ["MTConnectAssetsResponseHandler"] = AssetsParams,
+            ["MTConnectAssetResponseHandler"] = AssetParams,
+            ["MTConnectPutResponseHandler"] = PutParams,
+            ["MTConnectPostResponseHandler"] = PostParams,
+        };
 
     // Cache of parsed /// summary text per handler-class file path, so
     // we only Roslyn-parse each file once even though several variables

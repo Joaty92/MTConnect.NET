@@ -18,13 +18,13 @@ namespace MTConnect.Observations.Events
             set => AddValue(new ObservationValue(ValueKeys.AssetType, value));
         }
 
-		/// <summary>
-		/// Condensed message digest from a secure one-way hash function. FIPS PUB 180-4
-		/// </summary>
-		public string Hash
-		{
-			get => GetValue(ValueKeys.Hash);
-			set => AddValue(new ObservationValue(ValueKeys.Hash, value));
-		}
-	}
+        /// <summary>
+        /// Condensed message digest from a secure one-way hash function. FIPS PUB 180-4
+        /// </summary>
+        public string Hash
+        {
+            get => GetValue(ValueKeys.Hash);
+            set => AddValue(new ObservationValue(ValueKeys.Hash, value));
+        }
+    }
 }

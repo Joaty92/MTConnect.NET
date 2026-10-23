@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Minimal XMI fixture exercising the Normative.Deprecated attribute
+  (vendored from mtconnect/MtconnectTranspiler v2.8). Two Normative
+  stereotype applications: one on a deprecated class (base_Element =
+  "class-deprecated-1", deprecated = "2.5") and one on a still-active
+  class (base_Element = "class-active-1", no deprecated attribute).
+  Consumed by ObsoleteEmissionTests to assert the parse-side wiring
+  populates MTConnectClassModel.Deprecated from the raw attribute.
+-->
+<xmi:XMI xmlns:xmi="http://www.omg.org/spec/XMI/20131001"
+         xmlns:Profile="http://www.magicdraw.com/schemas/Profile.xmi">
+  <Profile:normative base_Element="class-deprecated-1" introduced="1.0" deprecated="2.5" />
+  <Profile:normative base_Element="class-active-1" introduced="1.0" />
+</xmi:XMI>

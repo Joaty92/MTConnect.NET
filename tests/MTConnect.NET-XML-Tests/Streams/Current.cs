@@ -26,7 +26,7 @@ namespace MTConnect.Tests.XML.Streams
                     using var xmlReader = XmlReader.Create(fileStream);
 
                     var doc = XmlStreamsResponseDocument.ReadXml(xmlReader);
-                    
+
                     Assert.That(doc != null, $"Read Original : {file}");
                 }
             }

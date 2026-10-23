@@ -21,10 +21,10 @@ namespace MTConnect
         [ThreadStatic]
         private static MD5 _md5;
 
-		[ThreadStatic]
-		private static SHA1 _sha1;
+        [ThreadStatic]
+        private static SHA1 _sha1;
 
-		[ThreadStatic]
+        [ThreadStatic]
         private static Random _random;
 
         private static MD5 MD5Algorithm
@@ -39,19 +39,19 @@ namespace MTConnect
             }
         }
 
-		private static SHA1 SHA1Algorithm
-		{
-			get
-			{
-				if (_sha1 == null)
-				{
-					_sha1 = SHA1.Create();
-				}
-				return _sha1;
-			}
-		}
+        private static SHA1 SHA1Algorithm
+        {
+            get
+            {
+                if (_sha1 == null)
+                {
+                    _sha1 = SHA1.Create();
+                }
+                return _sha1;
+            }
+        }
 
-		private static Random Random
+        private static Random Random
         {
             get
             {
@@ -484,153 +484,153 @@ namespace MTConnect
         }
 
 
-		/// <summary>
-		/// Computes the SHA-1 digest of the UTF-8 bytes of the string and returns it as a lowercase hex string; returns null if hashing throws.
-		/// </summary>
-		/// <param name="s">The string to hash.</param>
-		public static string ToSHA1Hash(this string s)
-		{
-			try
-			{
-				var hash = SHA1Algorithm.ComputeHash(_utf8.GetBytes(s));
-				return string.Concat(hash.Select(b => b.ToString("x2")));
-			}
-			catch { }
+        /// <summary>
+        /// Computes the SHA-1 digest of the UTF-8 bytes of the string and returns it as a lowercase hex string; returns null if hashing throws.
+        /// </summary>
+        /// <param name="s">The string to hash.</param>
+        public static string ToSHA1Hash(this string s)
+        {
+            try
+            {
+                var hash = SHA1Algorithm.ComputeHash(_utf8.GetBytes(s));
+                return string.Concat(hash.Select(b => b.ToString("x2")));
+            }
+            catch { }
 
-			return null;
-		}
+            return null;
+        }
 
-		/// <summary>
-		/// Computes the SHA-1 digest of the byte buffer and returns it as a lowercase hex string; returns null when the buffer is null or hashing throws.
-		/// </summary>
-		/// <param name="bytes">The buffer to hash.</param>
-		public static string ToSHA1Hash(this byte[] bytes)
-		{
-			if (bytes != null)
-			{
-				try
-				{
-					var hash = SHA1Algorithm.ComputeHash(bytes);
-					return string.Concat(hash.Select(b => b.ToString("x2")));
-				}
-				catch { }
-			}
+        /// <summary>
+        /// Computes the SHA-1 digest of the byte buffer and returns it as a lowercase hex string; returns null when the buffer is null or hashing throws.
+        /// </summary>
+        /// <param name="bytes">The buffer to hash.</param>
+        public static string ToSHA1Hash(this byte[] bytes)
+        {
+            if (bytes != null)
+            {
+                try
+                {
+                    var hash = SHA1Algorithm.ComputeHash(bytes);
+                    return string.Concat(hash.Select(b => b.ToString("x2")));
+                }
+                catch { }
+            }
 
-			return null;
-		}
+            return null;
+        }
 
-		/// <summary>
-		/// Formats an already-computed SHA-1 digest as a lowercase hex string without re-hashing; returns null when the buffer is null or formatting throws.
-		/// </summary>
-		/// <param name="hashBytes">The raw digest bytes to render as hex.</param>
-		public static string ToSHA1HashString(this byte[] hashBytes)
-		{
-			if (hashBytes != null)
-			{
-				try
-				{
-					return string.Concat(hashBytes.Select(b => b.ToString("x2")));
-				}
-				catch { }
-			}
+        /// <summary>
+        /// Formats an already-computed SHA-1 digest as a lowercase hex string without re-hashing; returns null when the buffer is null or formatting throws.
+        /// </summary>
+        /// <param name="hashBytes">The raw digest bytes to render as hex.</param>
+        public static string ToSHA1HashString(this byte[] hashBytes)
+        {
+            if (hashBytes != null)
+            {
+                try
+                {
+                    return string.Concat(hashBytes.Select(b => b.ToString("x2")));
+                }
+                catch { }
+            }
 
-			return null;
-		}
+            return null;
+        }
 
-		/// <summary>
-		/// Computes the raw SHA-1 digest of the UTF-8 bytes of the string; returns null if hashing throws.
-		/// </summary>
-		/// <param name="s">The string to hash.</param>
-		public static byte[] ToSHA1HashBytes(this string s)
-		{
-			try
-			{
-				return SHA1Algorithm.ComputeHash(_utf8.GetBytes(s));
-			}
-			catch { }
+        /// <summary>
+        /// Computes the raw SHA-1 digest of the UTF-8 bytes of the string; returns null if hashing throws.
+        /// </summary>
+        /// <param name="s">The string to hash.</param>
+        public static byte[] ToSHA1HashBytes(this string s)
+        {
+            try
+            {
+                return SHA1Algorithm.ComputeHash(_utf8.GetBytes(s));
+            }
+            catch { }
 
-			return null;
-		}
+            return null;
+        }
 
-		/// <summary>
-		/// Computes the raw SHA-1 digest of the byte buffer; returns null when the buffer is null or hashing throws.
-		/// </summary>
-		/// <param name="bytes">The buffer to hash.</param>
-		public static byte[] ToSHA1HashBytes(this byte[] bytes)
-		{
-			if (bytes != null)
-			{
-				try
-				{
-					return SHA1Algorithm.ComputeHash(bytes);
-				}
-				catch { }
-			}
-			return null;
-		}
+        /// <summary>
+        /// Computes the raw SHA-1 digest of the byte buffer; returns null when the buffer is null or hashing throws.
+        /// </summary>
+        /// <param name="bytes">The buffer to hash.</param>
+        public static byte[] ToSHA1HashBytes(this byte[] bytes)
+        {
+            if (bytes != null)
+            {
+                try
+                {
+                    return SHA1Algorithm.ComputeHash(bytes);
+                }
+                catch { }
+            }
+            return null;
+        }
 
-		/// <summary>
-		/// Computes an order-sensitive rolling SHA-1 over the lines: each line is hashed, concatenated after the running hash, and re-hashed, so the result depends on both content and sequence. Returns null for a null or empty array.
-		/// </summary>
-		/// <param name="lines">The ordered lines to fold into a single hash.</param>
-		public static string ToSHA1Hash(string[] lines)
-		{
-			if (lines != null && lines.Length > 0)
-			{
-				var x1 = lines[0];
-				var h = x1.ToSHA1Hash();
+        /// <summary>
+        /// Computes an order-sensitive rolling SHA-1 over the lines: each line is hashed, concatenated after the running hash, and re-hashed, so the result depends on both content and sequence. Returns null for a null or empty array.
+        /// </summary>
+        /// <param name="lines">The ordered lines to fold into a single hash.</param>
+        public static string ToSHA1Hash(string[] lines)
+        {
+            if (lines != null && lines.Length > 0)
+            {
+                var x1 = lines[0];
+                var h = x1.ToSHA1Hash();
 
-				for (int i = 1; i < lines.Length; i++)
-				{
-					x1 = lines[i].ToSHA1Hash();
-					x1 = h + x1;
-					h = x1.ToSHA1Hash();
-				}
+                for (int i = 1; i < lines.Length; i++)
+                {
+                    x1 = lines[i].ToSHA1Hash();
+                    x1 = h + x1;
+                    h = x1.ToSHA1Hash();
+                }
 
-				return h;
-			}
+                return h;
+            }
 
-			return null;
-		}
+            return null;
+        }
 
-		/// <summary>
-		/// Iterates the digest buffers, concatenating the running result with each next buffer and re-hashing it with SHA-1; for a single-element array the element is returned unchanged, and null/empty input returns null.
-		/// Note: for multi-element input the value returned is the last source buffer rather than the accumulated hash.
-		/// </summary>
-		/// <param name="hashBytes">The ordered digest buffers to combine.</param>
-		public static byte[] ToSHA1HashBytes(byte[][] hashBytes)
-		{
-			if (hashBytes != null && hashBytes.Length > 0)
-			{
-				var x1 = hashBytes[0];
-				var x2 = x1;
-				byte[] a1;
+        /// <summary>
+        /// Iterates the digest buffers, concatenating the running result with each next buffer and re-hashing it with SHA-1; for a single-element array the element is returned unchanged, and null/empty input returns null.
+        /// Note: for multi-element input the value returned is the last source buffer rather than the accumulated hash.
+        /// </summary>
+        /// <param name="hashBytes">The ordered digest buffers to combine.</param>
+        public static byte[] ToSHA1HashBytes(byte[][] hashBytes)
+        {
+            if (hashBytes != null && hashBytes.Length > 0)
+            {
+                var x1 = hashBytes[0];
+                var x2 = x1;
+                byte[] a1;
 
-				for (int i = 1; i < hashBytes.Length; i++)
-				{
-					x2 = hashBytes[i];
-					if (x2 != null)
-					{
-						a1 = new byte[x1.Length + x2.Length];
-						Array.Copy(x1, 0, a1, 0, x1.Length);
-						Array.Copy(x2, 0, a1, x1.Length, x2.Length);
+                for (int i = 1; i < hashBytes.Length; i++)
+                {
+                    x2 = hashBytes[i];
+                    if (x2 != null)
+                    {
+                        a1 = new byte[x1.Length + x2.Length];
+                        Array.Copy(x1, 0, a1, 0, x1.Length);
+                        Array.Copy(x2, 0, a1, x1.Length, x2.Length);
 
-						x1 = a1.ToSHA1HashBytes();
-					}
-				}
+                        x1 = a1.ToSHA1HashBytes();
+                    }
+                }
 
-				return x2;
-			}
+                return x2;
+            }
 
-			return null;
-		}
+            return null;
+        }
 
 
-		/// <summary>
-		/// Formats a byte count as a human-readable size using binary (1024) steps and one decimal place, ranging from "B" to "EB" and preserving the sign of a negative count.
-		/// </summary>
-		/// <param name="byteCount">The number of bytes to format.</param>
-		public static string ToFileSize(this long byteCount)
+        /// <summary>
+        /// Formats a byte count as a human-readable size using binary (1024) steps and one decimal place, ranging from "B" to "EB" and preserving the sign of a negative count.
+        /// </summary>
+        /// <param name="byteCount">The number of bytes to format.</param>
+        public static string ToFileSize(this long byteCount)
         {
             string[] suf = { "B", "KB", "MB", "GB", "TB", "PB", "EB" }; //Longs run out around EB
             if (byteCount == 0)

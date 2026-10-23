@@ -12,11 +12,7 @@ namespace MTConnect.Configurations
     public interface IAgentApplicationConfiguration : IAgentConfiguration
     {
         /// <summary>
-        /// Optional static UUID to assign to the Agent meta-device. When set,
-        /// this value overrides the per-boot <c>Guid.NewGuid()</c> default and
-        /// survives restarts without relying on <c>agent.information.json</c>
-        /// being present on disk. Corresponds to <c>AgentDeviceUUID</c> in the
-        /// cppagent reference implementation.
+        /// Optional static UUID to assign to the Agent meta-device. Must parse as an RFC 4122 UUID (any <c>Guid.TryParse</c>-accepted format, normalized to the canonical hyphenated form after trimming surrounding whitespace). Malformed, all-zero (<c>Guid.Empty</c> / RFC 4122 nil), or unparseable values log a length-only warning and the resolver falls through to persisted <c>agent.information.json</c> state or a deterministic UUID v5 derived from <c>ServiceName</c> + machine name. Corresponds to <c>AgentDeviceUUID</c> in the cppagent reference implementation.
         /// </summary>
         string AgentUuid { get; set; }
 

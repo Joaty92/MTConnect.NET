@@ -136,9 +136,24 @@ namespace Ceen.Mvc
 			TData item;
 			// TODO: Accept non-utf8 ?
             // TODO: Get the Json Async version
+			// Same bug class as MTConnectPostResponseHandler.ReadRequestBytes
+			// (dime F-IMP-001): the request-body drain honours the request-timeout /
+			// abort cancellation token surfaced on IHttpRequestInternal so a client
+			// abort short-circuits the read rather than blocking on the drained
+			// StreamReader. Precheck the token before starting so a
+			// pre-cancelled request short-circuits without allocating a reader;
+			// on .NET 7+, StreamReader.ReadToEndAsync(CancellationToken) then
+			// honours cancellation mid-read. Older TFMs (net4x, netstandard2.0,
+			// net6.0) only have the tokenless overload — the precheck is the
+			// best-effort surface until the vendored Ceen tree drops those TFMs.
+			context.Request.TimeoutCancellationToken.ThrowIfCancellationRequested();
 			using (var sr = new StreamReader(context.Request.Body, System.Text.Encoding.UTF8, false))
 			{
+#if NET7_0_OR_GREATER
+				var str = await sr.ReadToEndAsync(context.Request.TimeoutCancellationToken);
+#else
 				var str = await sr.ReadToEndAsync();
+#endif
 				item = JsonSerializer.Deserialize<TData>(str);
 			}
 
@@ -206,9 +221,24 @@ namespace Ceen.Mvc
 				return Status(HttpStatusCode.BadRequest, "Invalid ID");
 
 			TData item;
+			// Same bug class as MTConnectPostResponseHandler.ReadRequestBytes
+			// (dime F-IMP-001): the request-body drain honours the request-timeout /
+			// abort cancellation token surfaced on IHttpRequestInternal so a client
+			// abort short-circuits the read rather than blocking on the drained
+			// StreamReader. Precheck the token before starting so a
+			// pre-cancelled request short-circuits without allocating a reader;
+			// on .NET 7+, StreamReader.ReadToEndAsync(CancellationToken) then
+			// honours cancellation mid-read. Older TFMs (net4x, netstandard2.0,
+			// net6.0) only have the tokenless overload — the precheck is the
+			// best-effort surface until the vendored Ceen tree drops those TFMs.
+			context.Request.TimeoutCancellationToken.ThrowIfCancellationRequested();
 			using (var sr = new StreamReader(context.Request.Body, System.Text.Encoding.UTF8, false))
 			{
+#if NET7_0_OR_GREATER
+				var str = await sr.ReadToEndAsync(context.Request.TimeoutCancellationToken);
+#else
 				var str = await sr.ReadToEndAsync();
+#endif
 				item = JsonSerializer.Deserialize<TData>(str);
 
 			}

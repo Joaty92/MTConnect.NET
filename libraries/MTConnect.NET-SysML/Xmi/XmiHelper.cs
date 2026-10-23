@@ -16,6 +16,186 @@
         public const string Md_Customization_for_SysML__additional_stereotypesNamespace = "http://www.magicdraw.com/spec/Customization/180/SysML";
         public const string SimulationProfileNamespace = "http://www.magicdraw.com/schemas/SimulationProfile.xmi";
 
+        /// <summary>
+        /// XML tag / attribute constants for the
+        /// <c>Concept_Modeling_Profile</c> MagicDraw profile. Vendored from
+        /// mtconnect/MtconnectTranspiler v2.8 alongside the
+        /// <see cref="MTConnect.SysML.Xmi.ConceptModelingProfile"/> class
+        /// tree so the fork can round-trip Anything / Resource / Restriction
+        /// / Functional / Transitive / DisjointWith / EquivalentClass /
+        /// LiteralAnnotation stereotype applications.
+        /// </summary>
+        public static class ConceptModelingProfileStructure
+        {
+            #region XML Tags
+            /// <summary><c>&lt;Concept_Modeling_Profile:Literal_Annotation /&gt;</c></summary>
+            public const string LITERAL_ANNOTATION = "Literal_Annotation";
+            /// <summary><c>&lt;Concept_Modeling_Profile:Restriction /&gt;</c></summary>
+            public const string RESTRICTION = "Restriction";
+            /// <summary><c>&lt;Concept_Modeling_Profile:Equivalent_Class /&gt;</c></summary>
+            public const string EQUIVALENT_CLASS = "Equivalent_Class";
+            /// <summary><c>&lt;Concept_Modeling_Profile:Functional /&gt;</c></summary>
+            public const string FUNCTIONAL = "Functional";
+            /// <summary><c>&lt;Concept_Modeling_Profile:Resource /&gt;</c></summary>
+            public const string RESOURCE = "Resource";
+            /// <summary><c>&lt;Concept_Modeling_Profile:Transitive /&gt;</c></summary>
+            public const string TRANSITIVE = "Transitive";
+            /// <summary><c>&lt;Concept_Modeling_Profile:Disjoint_With /&gt;</c></summary>
+            public const string DISJOINT_WITH = "Disjoint_With";
+            /// <summary><c>&lt;Concept_Modeling_Profile:Anything /&gt;</c></summary>
+            public const string ANYTHING = "Anything";
+            #endregion
+
+            #region XML Attributes
+            /// <summary><c>base_Comment</c> attribute on a Concept_Modeling_Profile element.</summary>
+            public const string baseComment = "base_Comment";
+            /// <summary><c>base_Class</c> attribute on a Concept_Modeling_Profile element.</summary>
+            public const string baseClass = "base_Class";
+            /// <summary><c>base_Property</c> attribute on a Concept_Modeling_Profile element.</summary>
+            public const string baseProperty = "base_Property";
+            /// <summary><c>base_Generalization</c> attribute on a Concept_Modeling_Profile element.</summary>
+            public const string baseGeneralization = "base_Generalization";
+            /// <summary><c>IRI</c> attribute on a Concept_Modeling_Profile element.</summary>
+            public const string IRI = "IRI";
+            /// <summary><c>base_Dependency</c> attribute on a Concept_Modeling_Profile element.</summary>
+            public const string baseDependency = "base_Dependency";
+            #endregion
+        }
+
+        /// <summary>
+        /// XML tag / attribute constants for the <c>MagicDraw_Profile</c>
+        /// profile. Vendored from mtconnect/MtconnectTranspiler v2.8
+        /// alongside the <see cref="MTConnect.SysML.Xmi.MagicDrawProfile"/>
+        /// class tree so the fork can round-trip
+        /// additionalElementImport / additionalPackageImport / DiagramInfo /
+        /// DiagramTable / InstanceTable / CustomSort stereotype
+        /// applications.
+        /// </summary>
+        public static class MagicDrawProfileStructure
+        {
+            #region XML Tags
+            /// <summary><c>&lt;MagicDraw_Profile:additionalElementImport /&gt;</c></summary>
+            public const string ADDITIONAL_ELEMENT_IMPORT = "additionalElementImport";
+            /// <summary><c>&lt;MagicDraw_Profile:additionalPackageImport /&gt;</c></summary>
+            public const string ADDITIONAL_PACKAGE_IMPORT = "additionalPackageImport";
+            /// <summary><c>&lt;MagicDraw_Profile:DiagramInfo /&gt;</c></summary>
+            public const string DIAGRAM_INFO = "DiagramInfo";
+            /// <summary><c>&lt;MagicDraw_Profile:DiagramTable /&gt;</c></summary>
+            public const string DIAGRAM_TABLE = "DiagramTable";
+            /// <summary><c>&lt;MagicDraw_Profile:InstanceTable /&gt;</c></summary>
+            public const string INSTANCE_TABLE = "InstanceTable";
+            /// <summary><c>&lt;MagicDraw_Profile:CustomSort /&gt;</c></summary>
+            public const string CUSTOM_SORT = "CustomSort";
+            /// <summary><c>&lt;rowElements /&gt;</c> nested child.</summary>
+            public const string ROW_ELEMENTS = "rowElements";
+            /// <summary><c>&lt;hideColumns /&gt;</c> nested child.</summary>
+            public const string HIDE_COLUMNS = "hideColumns";
+            /// <summary><c>&lt;expandedRows /&gt;</c> nested child.</summary>
+            public const string EXPANDED_ROWS = "expandedRows";
+            /// <summary><c>&lt;sort /&gt;</c> nested child.</summary>
+            public const string SORT = "sort";
+            /// <summary><c>&lt;columnIds /&gt;</c> nested child.</summary>
+            public const string COLUMN_IDS = "columnIds";
+            /// <summary><c>&lt;columnWidth /&gt;</c> nested child.</summary>
+            public const string COLUMN_WIDTH = "columnWidth";
+            /// <summary><c>&lt;customColumns /&gt;</c> nested child.</summary>
+            public const string CUSTOM_COLUMNS = "customColumns";
+            #endregion
+
+            #region XML Attributes
+            /// <summary><c>base_ElementImport</c> attribute.</summary>
+            public const string baseElementImport = "base_ElementImport";
+            /// <summary><c>base_PackageImport</c> attribute.</summary>
+            public const string basePackageImport = "base_PackageImport";
+            /// <summary><c>treatAsAuxiliaryInOwningProject</c> attribute.</summary>
+            public const string treatAsAuxiliaryInOwningProject = "treatAsAuxiliaryInOwningProject";
+            /// <summary><c>base_Diagram</c> attribute.</summary>
+            public const string baseDiagram = "base_Diagram";
+            /// <summary><c>Author</c> attribute.</summary>
+            public const string author = "Author";
+            /// <summary><c>Creation_date</c> attribute.</summary>
+            public const string creationDate = "Creation_date";
+            /// <summary><c>classifiers</c> attribute.</summary>
+            public const string classifiers = "classifiers";
+            /// <summary><c>scope</c> attribute.</summary>
+            public const string scope = "scope";
+            /// <summary><c>includeSubtypesOfRowTypes</c> attribute.</summary>
+            public const string includeSubtypesOfRowTypes = "includeSubtypesOfRowTypes";
+            /// <summary><c>showUnitsOnValues</c> attribute.</summary>
+            public const string showUnitsOnValues = "showUnitsOnValues";
+            /// <summary><c>rowsOrder</c> attribute.</summary>
+            public const string rowsOrder = "rowsOrder";
+            /// <summary><c>includeCustomTypesOfRowTypes</c> attribute.</summary>
+            public const string includeCustomTypesOfRowTypes = "includeCustomTypesOfRowTypes";
+            /// <summary><c>Modification_date</c> attribute.</summary>
+            public const string modificationDate = "Modification_date";
+            /// <summary><c>Last_modified_by</c> attribute.</summary>
+            public const string lastModifiedBy = "Last_modified_by";
+            /// <summary><c>base_Element</c> attribute.</summary>
+            public const string baseElement = "base_Element";
+            /// <summary><c>sortPriority</c> attribute.</summary>
+            public const string sortPriority = "sortPriority";
+            /// <summary><c>showDetailedColumnName</c> attribute.</summary>
+            public const string showDetailedColumnName = "showDetailedColumnName";
+            /// <summary><c>typesIncludeSubtypes</c> attribute.</summary>
+            public const string typesIncludeSubtypes = "typesIncludeSubtypes";
+            /// <summary><c>displayMode</c> attribute.</summary>
+            public const string displayMode = "displayMode";
+            /// <summary><c>showElementNumber</c> attribute.</summary>
+            public const string showElementNumber = "showElementNumber";
+            /// <summary><c>showColumnIcons</c> attribute.</summary>
+            public const string showColumnIcons = "showColumnIcons";
+            /// <summary><c>showScopeAsRoot</c> attribute.</summary>
+            public const string showScopeAsRoot = "showScopeAsRoot";
+            /// <summary><c>showScope</c> attribute.</summary>
+            public const string showScope = "showScope";
+            /// <summary><c>showFilter</c> attribute.</summary>
+            public const string showFilter = "showFilter";
+            /// <summary><c>showElementType</c> attribute.</summary>
+            public const string showElementType = "showElementType";
+            /// <summary><c>additionalElements</c> attribute.</summary>
+            public const string additionalElements = "additionalElements";
+            #endregion
+        }
+
+        /// <summary>
+        /// XML tag / attribute constants for the
+        /// <c>MD_Customization_for_SysML__additional_stereotypes</c>
+        /// customization profile. Vendored from mtconnect/MtconnectTranspiler
+        /// v2.8 alongside the
+        /// <see cref="MTConnect.SysML.Xmi.MDCustomizationForSysMLAdditionalStereoTypes"/>
+        /// class tree so the fork can round-trip ValueProperty /
+        /// PartProperty / ReferenceProperty / ConstraintProperty /
+        /// ConstraintParameter / ExternalModel stereotype applications on
+        /// SysML block features.
+        /// </summary>
+        public static class MDCustomizationForSysMLAdditionalStereoTypes
+        {
+            #region XML Tags
+            /// <summary><c>&lt;MD_Customization_for_SysML__additional_stereotypes:ValueProperty /&gt;</c></summary>
+            public const string VALUE_PROPERTY = "ValueProperty";
+            /// <summary><c>&lt;MD_Customization_for_SysML__additional_stereotypes:PartProperty /&gt;</c></summary>
+            public const string PART_PROPERTY = "PartProperty";
+            /// <summary><c>&lt;MD_Customization_for_SysML__additional_stereotypes:ReferenceProperty /&gt;</c></summary>
+            public const string REFERENCE_PROPERTY = "ReferenceProperty";
+            /// <summary><c>&lt;MD_Customization_for_SysML__additional_stereotypes:ConstraintProperty /&gt;</c></summary>
+            public const string CONSTRAINT_PROPERTY = "ConstraintProperty";
+            /// <summary><c>&lt;MD_Customization_for_SysML__additional_stereotypes:ConstraintParameter /&gt;</c></summary>
+            public const string CONSTRAINT_PARAMETER = "ConstraintParameter";
+            /// <summary><c>&lt;MD_Customization_for_SysML__additional_stereotypes:ExternalModel /&gt;</c></summary>
+            public const string EXTERNAL_MODEL = "ExternalModel";
+            #endregion
+
+            #region XML Attributes
+            /// <summary><c>base_Property</c> attribute.</summary>
+            public const string baseProperty = "base_Property";
+            /// <summary><c>base_Port</c> attribute.</summary>
+            public const string basePort = "base_Port";
+            /// <summary><c>base_Element</c> attribute.</summary>
+            public const string baseElement = "base_Element";
+            #endregion
+        }
+
         public static class ProfileStructure
         {
             #region XML Tags
@@ -26,6 +206,15 @@
             public const string OBSERVES = "observes";
             public const string ORGANIZER = "organizer";
             public const string VALUE_TYPE = "valueType";
+            /// <summary>
+            /// <c>&lt;Profile:updated /&gt;</c> child element on a
+            /// <see cref="MTConnect.SysML.Xmi.Profile.Normative"/> stereotype
+            /// application, holding one MTConnect version at which the
+            /// stereotyped element was updated. Vendored from mtconnect/
+            /// MtconnectTranspiler v2.8 so the fork can preserve the full
+            /// version history of every normative element.
+            /// </summary>
+            public const string UPDATED = "updated";
             #endregion
         }
 
@@ -147,6 +336,24 @@
             /// <c>&lt;defaultValue xmi:type='uml:LiteralString' /&gt;</c>
             /// </summary>
             public const string LiteralString = "uml:LiteralString";
+            /// <summary>
+            /// <c>&lt;defaultValue xmi:type='uml:LiteralInteger' /&gt;</c>.
+            /// Vendored from mtconnect/MtconnectTranspiler v2.8 alongside
+            /// <see cref="LiteralReal"/> + <see cref="LiteralBoolean"/> so the
+            /// fork can parse integer default values (multiplicity bounds,
+            /// deprecation-version integer literals).
+            /// </summary>
+            public const string LiteralInteger = "uml:LiteralInteger";
+            /// <summary>
+            /// <c>&lt;defaultValue xmi:type='uml:LiteralReal' /&gt;</c>.
+            /// Vendored from mtconnect/MtconnectTranspiler v2.8.
+            /// </summary>
+            public const string LiteralReal = "uml:LiteralReal";
+            /// <summary>
+            /// <c>&lt;defaultValue xmi:type='uml:LiteralBoolean' /&gt;</c>.
+            /// Vendored from mtconnect/MtconnectTranspiler v2.8.
+            /// </summary>
+            public const string LiteralBoolean = "uml:LiteralBoolean";
             /// <summary>
             /// <c>&lt;uml:Model xmi:type='uml:Model' /&gt;</c>
             /// </summary>

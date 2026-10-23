@@ -53,6 +53,18 @@ namespace MTConnect.SysML.Xmi.UML
         public LowerValue? LowerValue { get; set; }
 
         /// <summary>
+        /// Child <inheritdoc cref="MTConnect.SysML.Xmi.UpperValue"/>. Vendored
+        /// from mtconnect/MtconnectTranspiler v2.8 so per-property multiplicity
+        /// upper-bounds ('1', '*', '2..5' upper leg, etc.) are preserved on
+        /// generated classes rather than dropped on the floor. The fork
+        /// previously exposed only <see cref="LowerValue"/>; downstream
+        /// pipeline code that emits property multiplicity should now consult
+        /// both.
+        /// </summary>
+        [XmlElement(ElementName = XmiHelper.XmiStructure.UPPER_VALUE, Namespace = "")]
+        public UpperValue? UpperValue { get; set; }
+
+        /// <summary>
         /// Child <inheritdoc cref="MTConnect.SysML.Xmi.DefaultValue"/>
         /// </summary>
         [XmlAnyElement(XmiHelper.XmiStructure.DEFAULT_VALUE, Namespace = "")]
@@ -60,10 +72,17 @@ namespace MTConnect.SysML.Xmi.UML
         private DefaultValue? _defaultValue;
         /// <summary>
         /// The deserialized default value of the property, materialized
-        /// lazily from <see cref="DefaultValueElement"/> as either a
-        /// <see cref="UmlInstanceValue"/> or <see cref="UmlLiteralString"/>
-        /// depending on the element's <c>xmi:type</c>. Returns <c>null</c>
-        /// when no default value element is present.
+        /// lazily from <see cref="DefaultValueElement"/>. Recognises five
+        /// <c>xmi:type</c> variants — the fork's original
+        /// <see cref="UmlInstanceValue"/> + <see cref="UmlLiteralString"/>
+        /// plus <see cref="UmlLiteralInteger"/> / <see cref="UmlLiteralReal"/>
+        /// / <see cref="UmlLiteralBoolean"/> vendored from
+        /// mtconnect/MtconnectTranspiler v2.8. Returns <c>null</c> when no
+        /// default value element is present, or when the <c>xmi:type</c>
+        /// falls outside the recognised set (unknown types are ignored
+        /// rather than swallowed silently — call sites can distinguish
+        /// "no default declared" from "unknown default type" by inspecting
+        /// <see cref="DefaultValueElement"/> directly).
         /// </summary>
         public DefaultValue? DefaultValue
         {
@@ -81,7 +100,6 @@ namespace MTConnect.SysML.Xmi.UML
                     Namespace = ""
                 };
 
-                //XmlSerializer serial = new XmlSerializer(typeof(T), xRoot);
                 using var xReader = new XmlNodeReader(DefaultValueElement);
 
                 XmlSerializer? serial = null;
@@ -93,6 +111,15 @@ namespace MTConnect.SysML.Xmi.UML
                         break;
                     case XmiHelper.UmlStructure.LiteralString:
                         serial = new XmlSerializer(typeof(UmlLiteralString), xRoot);
+                        break;
+                    case XmiHelper.UmlStructure.LiteralInteger:
+                        serial = new XmlSerializer(typeof(UmlLiteralInteger), xRoot);
+                        break;
+                    case XmiHelper.UmlStructure.LiteralReal:
+                        serial = new XmlSerializer(typeof(UmlLiteralReal), xRoot);
+                        break;
+                    case XmiHelper.UmlStructure.LiteralBoolean:
+                        serial = new XmlSerializer(typeof(UmlLiteralBoolean), xRoot);
                         break;
                     default:
                         break;
@@ -112,6 +139,15 @@ namespace MTConnect.SysML.Xmi.UML
                             case XmiHelper.UmlStructure.LiteralString:
                                 _defaultValue = deserializedObject as UmlLiteralString;
                                 break;
+                            case XmiHelper.UmlStructure.LiteralInteger:
+                                _defaultValue = deserializedObject as UmlLiteralInteger;
+                                break;
+                            case XmiHelper.UmlStructure.LiteralReal:
+                                _defaultValue = deserializedObject as UmlLiteralReal;
+                                break;
+                            case XmiHelper.UmlStructure.LiteralBoolean:
+                                _defaultValue = deserializedObject as UmlLiteralBoolean;
+                                break;
                             default:
                                 break;
                         }
@@ -123,10 +159,28 @@ namespace MTConnect.SysML.Xmi.UML
         }
 
         /// <summary>
-        /// Child <inheritdoc cref="MTConnect.SysML.Xmi.XmiExtension"/>
+        /// Child <inheritdoc cref="MTConnect.SysML.Xmi.XmiExtension"/> — one
+        /// or more MagicDraw <c>xmi:Extension</c> blocks carrying tool-model
+        /// metadata (multiplicity limits, tag applications, stereotype
+        /// bindings). Vendored from mtconnect/MtconnectTranspiler v2.8
+        /// where the equivalent shape is <c>XmiExtension[] Extensions</c>;
+        /// the fork previously exposed only a single <c>Extension</c> and
+        /// dropped every additional block silently. Widened here to array
+        /// so all blocks are preserved.
         /// </summary>
         [XmlElement(ElementName = XmiHelper.XmiStructure.EXTENSION, Namespace = XmiHelper.XmiNamespace)]
-        public XmiExtension? Extension { get; set; }
+        public XmiExtension[]? Extensions { get; set; }
+
+        /// <summary>
+        /// Legacy compatibility surface that returns the first entry in
+        /// <see cref="Extensions"/>, or <c>null</c> when the array is
+        /// empty. Marked obsolete because MagicDraw commonly emits more
+        /// than one <c>xmi:Extension</c> block per property; new callers
+        /// should iterate <see cref="Extensions"/> directly.
+        /// </summary>
+        [XmlIgnore]
+        [System.Obsolete("Use Extensions[] — a UmlProperty commonly carries more than one xmi:Extension block. This single-item accessor returns Extensions[0] and will be removed in a subsequent release.")]
+        public XmiExtension? Extension => Extensions is { Length: > 0 } ? Extensions[0] : null;
 
         /// <summary>
         /// <c>visibility</c> attribute

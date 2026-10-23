@@ -138,7 +138,7 @@ namespace TrakHound.Builder
                     using (var outputStream = new MemoryStream())
                     {
                         using (var archive = new ZipArchive(outputStream, ZipArchiveMode.Create))
-                        {                      
+                        {
                             // Add Source files from Directory
                             var files = Directory.GetFiles(sourcePath, "*.*", SearchOption.AllDirectories);
                             foreach (var file in files)
@@ -179,40 +179,40 @@ namespace TrakHound.Builder
             }
         }
 
-		/// <summary>
-		/// Extracts the supplied zip archive bytes into
-		/// <paramref name="destinationPath"/>.
-		/// </summary>
-		/// <param name="archivedBytes">In-memory zip archive.</param>
-		/// <param name="destinationPath">Target directory.</param>
-		public static void Unzip(byte[] archivedBytes, string destinationPath)
-		{
-			if (archivedBytes != null && !string.IsNullOrEmpty(destinationPath))
-			{
-				try
-				{
-					if (!Directory.Exists(destinationPath)) Directory.CreateDirectory(destinationPath);
+        /// <summary>
+        /// Extracts the supplied zip archive bytes into
+        /// <paramref name="destinationPath"/>.
+        /// </summary>
+        /// <param name="archivedBytes">In-memory zip archive.</param>
+        /// <param name="destinationPath">Target directory.</param>
+        public static void Unzip(byte[] archivedBytes, string destinationPath)
+        {
+            if (archivedBytes != null && !string.IsNullOrEmpty(destinationPath))
+            {
+                try
+                {
+                    if (!Directory.Exists(destinationPath)) Directory.CreateDirectory(destinationPath);
 
-					using (var inputStream = new MemoryStream(archivedBytes))
-					{
-						using (var archive = new ZipArchive(inputStream, ZipArchiveMode.Read))
-						{
-							archive.ExtractToDirectory(destinationPath, true);
-						}
-					}
-				}
-				catch { }
-			}
-		}
+                    using (var inputStream = new MemoryStream(archivedBytes))
+                    {
+                        using (var archive = new ZipArchive(inputStream, ZipArchiveMode.Read))
+                        {
+                            archive.ExtractToDirectory(destinationPath, true);
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
 
 
-		/// <summary>
-		/// Recursively deletes every file and subdirectory under
-		/// <paramref name="directory"/>, leaving the directory itself
-		/// in place but empty. Best-effort — IO errors are swallowed.
-		/// </summary>
-		/// <param name="directory">Directory to clear.</param>
-		public static void Clear(string directory)
+        /// <summary>
+        /// Recursively deletes every file and subdirectory under
+        /// <paramref name="directory"/>, leaving the directory itself
+        /// in place but empty. Best-effort — IO errors are swallowed.
+        /// </summary>
+        /// <param name="directory">Directory to clear.</param>
+        public static void Clear(string directory)
         {
             if (!string.IsNullOrEmpty(directory))
             {

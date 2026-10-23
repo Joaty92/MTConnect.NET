@@ -67,7 +67,7 @@ namespace MTConnect.SysML.CSharp
         /// <param name="subClasses">Optional sub-classes that derive
         /// from <paramref name="umlClass"/>.</param>
         public DataItemType(XmiDocument xmiDocument, string category, string idPrefix, UmlClass umlClass, UmlEnumerationLiteral umlEnumerationLiteral, IEnumerable<UmlClass> subClasses = null)
-            : base (xmiDocument, category, idPrefix, umlClass, umlEnumerationLiteral, subClasses) { }
+            : base(xmiDocument, category, idPrefix, umlClass, umlEnumerationLiteral, subClasses) { }
 
 
         /// <summary>
@@ -155,19 +155,19 @@ namespace MTConnect.SysML.CSharp
         public string RenderDescriptions() => null;
 
 
-		private static string GetName(string type)
-		{
-			switch (type)
-			{
-				case "EMERGENCY_STOP": return "estop";
-				case "CONTROLLER_MODE": return "mode";
-				case "EXECUTION": return "exec";
-				case "LOAD": return "load";
-				case "POSITION": return "pos";
-				case "TEMPERATURE": return "temp";
-			}
+        private static string GetName(string type)
+        {
+            switch (type)
+            {
+                case "EMERGENCY_STOP": return "estop";
+                case "CONTROLLER_MODE": return "mode";
+                case "EXECUTION": return "exec";
+                case "LOAD": return "load";
+                case "POSITION": return "pos";
+                case "TEMPERATURE": return "temp";
+            }
 
-			return type.ToCamelCase();
-		}
-	}
+            return type.ToCamelCase();
+        }
+    }
 }

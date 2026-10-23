@@ -96,5 +96,5 @@ namespace MTConnect.Streams
         /// Condition organizes the Data Entities returned in the MTConnectStreams XML document for those DataItem elements defined with a category attribute of CONDITION in the MTConnectDevices document.
         /// </summary>
         IEnumerable<IConditionObservation> Conditions { get; }
-    }  
+    }
 }

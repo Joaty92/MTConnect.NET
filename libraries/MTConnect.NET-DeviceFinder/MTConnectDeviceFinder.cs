@@ -62,11 +62,11 @@ namespace MTConnect.DeviceFinder
 
         /// <summary>Raised when a probe response is parsed successfully; immediately followed by <see cref="DeviceFound"/>.</summary>
         public event ProbeRequestHandler ProbeSuccessful;
-        #pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
+#pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
 
         /// <summary>Raised when a probe attempt fails (HTTP error, parse failure, non-MTConnect response).</summary>
         public event ProbeRequestHandler ProbeError;
-        #pragma warning restore CS0067
+#pragma warning restore CS0067
 
 
         /// <summary>

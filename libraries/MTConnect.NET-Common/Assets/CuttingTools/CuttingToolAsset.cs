@@ -53,7 +53,7 @@ namespace MTConnect.Assets.CuttingTools
                 return asset;
             }
 
-            return null;         
+            return null;
         }
 
         /// <summary>
@@ -80,25 +80,25 @@ namespace MTConnect.Assets.CuttingTools
         }
 
 
-		/// <summary>
-		/// Computes the content hash of this cutting tool asset; see <see cref="GenerateHash(CuttingToolAsset, bool)"/>.
-		/// </summary>
-		/// <param name="includeTimestamp">When true, the asset timestamp is folded into the hash.</param>
-		public override string GenerateHash(bool includeTimestamp = true)
-		{
-			return GenerateHash(this, includeTimestamp);
-		}
+        /// <summary>
+        /// Computes the content hash of this cutting tool asset; see <see cref="GenerateHash(CuttingToolAsset, bool)"/>.
+        /// </summary>
+        /// <param name="includeTimestamp">When true, the asset timestamp is folded into the hash.</param>
+        public override string GenerateHash(bool includeTimestamp = true)
+        {
+            return GenerateHash(this, includeTimestamp);
+        }
 
-		/// <summary>
-		/// Computes a SHA-1 content hash combining the asset's scalar properties with the hash of its life cycle; when <paramref name="includeTimestamp"/> is false the timestamp and UUID are excluded so equality is independent of when and where the asset was reported. Returns null for a null asset.
-		/// </summary>
-		/// <param name="asset">The cutting tool asset to hash.</param>
-		/// <param name="includeTimestamp">When true, the asset timestamp is folded into the hash.</param>
-		public static string GenerateHash(CuttingToolAsset asset, bool includeTimestamp = true)
-		{
-			if (asset != null)
-			{
-				var ids = new List<string>();
+        /// <summary>
+        /// Computes a SHA-1 content hash combining the asset's scalar properties with the hash of its life cycle; when <paramref name="includeTimestamp"/> is false the timestamp and UUID are excluded so equality is independent of when and where the asset was reported. Returns null for a null asset.
+        /// </summary>
+        /// <param name="asset">The cutting tool asset to hash.</param>
+        /// <param name="includeTimestamp">When true, the asset timestamp is folded into the hash.</param>
+        public static string GenerateHash(CuttingToolAsset asset, bool includeTimestamp = true)
+        {
+            if (asset != null)
+            {
+                var ids = new List<string>();
 
                 if (includeTimestamp) ids.Add(ObjectExtensions.GetHashPropertyString(asset).ToSHA1Hash());
                 else ids.Add(ObjectExtensions.GetHashPropertyString(asset, new string[] { nameof(Timestamp), nameof(Uuid) }).ToSHA1Hash());
@@ -106,9 +106,9 @@ namespace MTConnect.Assets.CuttingTools
                 ids.Add(CuttingTools.CuttingToolLifeCycle.GenerateHash(asset.CuttingToolLifeCycle));
 
                 return StringFunctions.ToSHA1Hash(ids.ToArray());
-			}
+            }
 
-			return null;
-		}
-	}
+            return null;
+        }
+    }
 }

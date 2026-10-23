@@ -176,9 +176,9 @@ namespace Ceen.Httpd
             [SupportedOSPlatform("windows")]
 #endif
             public void HandleRequest(SocketInformation socket, EndPoint remoteEndPoint, string logtaskid)
-			{
-				RunClient(socket, remoteEndPoint, logtaskid, Controller);
-			}
+            {
+                RunClient(socket, remoteEndPoint, logtaskid, Controller);
+            }
 
             /// <summary>
             /// Requests that this instance stops serving requests
@@ -203,17 +203,31 @@ namespace Ceen.Httpd
             /// </summary>
             public int ActiveClients { get { return Controller.ActiveClients; } }
 
-#if NET5_0_OR_GREATER
             /// <summary>
             /// Initializes the lifetime service.
             /// </summary>
             /// <returns>The lifetime service.</returns>
+            /// <remarks>
+            /// The base <see cref="MarshalByRefObject.InitializeLifetimeService"/> is
+            /// only marked obsolete on .NET 5 and newer (CoreCLR removed the .NET
+            /// Remoting lifetime-service infrastructure there). On .NET Framework
+            /// the base is not obsolete, and applying
+            /// <see cref="ObsoleteAttribute"/> on the override would trigger CS0809
+            /// (obsolete override of non-obsolete base). The attribute is therefore
+            /// conditioned on net5+ — silencing the net5+ CS0672 (non-obsolete
+            /// override of obsolete member) without forbidding the override on
+            /// net4x where remoting is still live. Returning <c>null</c> pins the
+            /// server object's lifetime to the process on every TFM (without this
+            /// override, .NET Framework Remoting hands the server a five-minute
+            /// default lease and may collect it after idle expiry).
+            /// </remarks>
+#if NET5_0_OR_GREATER
             [Obsolete("InitializeLifetimeService is obsolete in .NET 5+; the override exists for legacy AppDomain remoting compatibility.")]
+#endif
             public override object InitializeLifetimeService()
             {
                 return null;
             }
-#endif
         }
 
         /// <summary>
@@ -873,9 +887,9 @@ namespace Ceen.Httpd
         [SupportedOSPlatform("windows")]
 #endif
         private static void RunClient(SocketInformation socketinfo, EndPoint remoteEndPoint, string logtaskid, RunnerControl controller)
-		{
-			RunClient(new Socket(socketinfo), remoteEndPoint, logtaskid, controller);
-		}
+        {
+            RunClient(new Socket(socketinfo), remoteEndPoint, logtaskid, controller);
+        }
 
         /// <summary>
         /// Handler method for connections

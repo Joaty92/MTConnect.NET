@@ -59,6 +59,18 @@ public const string Unavailable = "UNAVAILABLE";
 
 Every serializer, every codec, every Output transformer (under `MTConnect.NET-Common/Observations/Output/`) treats `Unavailable` as the canonical absent-value sentinel. Source: MTConnect Standard `Part_2.0` Streams §3 ([docs.mtconnect.org](https://docs.mtconnect.org/)).
 
+### Value-class-aware empty-Result coerce
+
+`MTConnectAgent.AddObservation` coerces a null, empty, or whitespace-only Result to `UNAVAILABLE` only when the DataItem's value class forbids the empty string. The classifier — [`DataItem.GetValueClass`](/api/MTConnect.Devices.DataItem) — returns one of three [`DataItemValueClass`](/api/MTConnect.Devices.DataItems.DataItemValueClass) values, each with a distinct policy:
+
+| Value class | DataItems | Empty-Result behaviour |
+| --- | --- | --- |
+| **Numeric** | Every VALUE-representation SAMPLE (Part 2 — "Sample MUST always be reported in float") plus the numeric-typed VALUE-representation Events enumerated in the SysML model — `PART_COUNT`, `LINE_NUMBER`, `BLOCK_COUNT`, `HARDNESS`, `TOOL_OFFSET`, and kindred integer / float `result` attributes. | Always coerced to `UNAVAILABLE`. |
+| **Enumeration** | VALUE-representation EVENT DataItems whose Type has a controlled vocabulary (`EXECUTION`, `CONTROLLER_MODE`, `AVAILABILITY`, and every other Event whose value is defined by an `MTConnect.Observations.Events.<Type>` enum). | Coerced to `UNAVAILABLE` by default. The [`IAgentConfiguration.AllowEmptyResultForEnumEvents`](/api/MTConnect.Configurations.IAgentConfiguration) flag (default `false`) preserves the empty Result when an integrator needs parity with adapters that emit empty values for these Events. |
+| **String** | Free-form VALUE-representation EVENT DataItems (`PROGRAM`, `MESSAGE`, `TOOL_ID`, `ASSET_CHANGED`, and every other non-vocabulary Type); also SAMPLE or EVENT DataItems with a DATA_SET / TABLE / TIME_SERIES representation, whose structured payloads are outside the classifier's remit; also CONDITION observations (coercion is governed by `ConditionLevel`). | Never coerced. The standard's default value type for `Observation::result` is `string`, does not forbid the empty string, and the reference cppagent accepts empty strings for these Events. |
+
+The classifier is representation-aware — DATA_SET / TABLE / TIME_SERIES inputs legitimately omit the Result key by design (they carry `Entries`, `Cells`, or `Samples` in dedicated value keys), so those observations pass through unchanged.
+
 ## Samples
 
 A SAMPLE observation carries a numeric value plus the SAMPLE-specific metadata that the DataItem declares. The four concrete sample subclasses map to the four DataItem `Representation` modes:

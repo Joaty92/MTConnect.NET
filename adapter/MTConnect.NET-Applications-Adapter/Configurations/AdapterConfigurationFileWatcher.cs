@@ -18,7 +18,7 @@ namespace MTConnect.Configurations
         /// </summary>
         /// <param name="path">Filesystem path to watch.</param>
         /// <param name="interval">Poll interval in milliseconds.</param>
-        public AdapterConfigurationFileWatcher(string path, int interval = DefaultInterval) :base(path, interval) { }
+        public AdapterConfigurationFileWatcher(string path, int interval = DefaultInterval) : base(path, interval) { }
 
 
         /// <summary>

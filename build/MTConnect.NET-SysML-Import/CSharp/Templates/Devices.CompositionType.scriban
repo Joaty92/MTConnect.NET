@@ -8,7 +8,10 @@ namespace MTConnect.Devices.Compositions
     /// <summary>
     /// {{description}}
     /// </summary>
-    public class {{name}} : {{ if (parent_type) }}{{parent_type}}{{else}}Composition{{ end }} 
+{{- if (deprecated) }}
+    [System.Obsolete("Deprecated in v{{deprecated}}")]
+{{- end }}
+    public class {{name}} : {{ if (parent_type) }}{{parent_type}}{{else}}Composition{{ end }}
     {
         /// <summary>
         /// The MTConnect <c>type</c> value that identifies this Composition.

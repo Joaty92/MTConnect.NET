@@ -153,7 +153,7 @@ namespace MTConnect.Modules.Http
                         var outputBytes = Encoding.Convert(Encoding.ASCII, Encoding.UTF8, inputBytes);
                         return new MemoryStream(outputBytes);
                     }
-                        
+
                 }
                 catch { }
             }

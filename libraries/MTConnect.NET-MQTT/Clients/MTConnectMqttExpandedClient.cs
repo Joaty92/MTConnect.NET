@@ -111,15 +111,15 @@ namespace MTConnect.Clients
         /// <summary>Current broker session status.</summary>
         public MTConnectMqttConnectionStatus ConnectionStatus => _connectionStatus;
 
-        #pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
+#pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
         /// <summary>Raised after the broker session has been established and subscriptions are active.</summary>
         public event EventHandler Connected;
-        #pragma warning restore CS0067
+#pragma warning restore CS0067
 
-        #pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
+#pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
         /// <summary>Raised when the broker session is dropped (by the client, the broker, or a transport failure).</summary>
         public event EventHandler Disconnected;
-        #pragma warning restore CS0067
+#pragma warning restore CS0067
 
         /// <summary>Raised whenever <see cref="ConnectionStatus"/> transitions; carries the new status.</summary>
         public event EventHandler<MTConnectMqttConnectionStatus> ConnectionStatusChanged;

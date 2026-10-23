@@ -252,7 +252,11 @@ defaultVersion: 2.3
 
 * `ignoreObservationCase` - Sets the default for Ignoring the case of Observation values. Applicable values will be converted to uppercase
 
-* `inputValidationLevel` - Sets the default input validation level when new Observations are added to the Agent. 0 = Ignore, 1 = Warning, 2 = Strict
+* `inputValidationLevel` - Sets the default per-DataItem validation level applied when new Observations and Assets are added to the Agent. Governs `InvalidObservationAdded` and `InvalidAssetAdded`. 0 = Ignore, 1 = Warning, 2 = Remove, 3 = Strict
+
+* `deviceValidationLevel` - Sets the default device-shape validation level applied while a Device is being added or normalised (Component, Composition, DataItem). Independent from `inputValidationLevel` — a common integrator profile is `inputValidationLevel: Strict` alongside `deviceValidationLevel: Warning`. Governs `InvalidComponentAdded`, `InvalidCompositionAdded`, `InvalidDataItemAdded`, and `InvalidDeviceAdded`. 0 = Ignore, 1 = Warning, 2 = Remove, 3 = Strict
+
+* `allowEmptyResultForEnumEvents` - When `true`, preserves an empty Result verbatim on VALUE-representation EVENT DataItems whose Type has a controlled vocabulary (`EXECUTION`, `CONTROLLER_MODE`, `AVAILABILITY`, etc.). Default `false` coerces the empty Result to `UNAVAILABLE`. Free-form String and Numeric-typed Events are unaffected.
 
 * `monitorConfigurationFiles` - Sets whether Configuration files are monitored. If enabled and a configuration file is changed, the Agent will restart
 

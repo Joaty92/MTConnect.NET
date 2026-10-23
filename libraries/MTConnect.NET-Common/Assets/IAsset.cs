@@ -18,11 +18,11 @@ namespace MTConnect.Assets
         ulong InstanceId { get; set; }
 
 
-		/// <summary>
-		/// Prepares the asset for inclusion in a response document for the given MTConnect version, returning the version-adjusted asset or null to exclude it.
-		/// </summary>
-		/// <param name="mtconnectVersion">The MTConnect version the response document targets.</param>
-		IAsset Process(Version mtconnectVersion);
+        /// <summary>
+        /// Prepares the asset for inclusion in a response document for the given MTConnect version, returning the version-adjusted asset or null to exclude it.
+        /// </summary>
+        /// <param name="mtconnectVersion">The MTConnect version the response document targets.</param>
+        IAsset Process(Version mtconnectVersion);
 
         /// <summary>
         /// Validates the asset against the given MTConnect version, reporting whether it satisfies that version's constraints.
@@ -35,5 +35,5 @@ namespace MTConnect.Assets
         /// </summary>
         /// <param name="includeTimestamp">When true, the asset timestamp is folded into the hash.</param>
         string GenerateHash(bool includeTimestamp = true);
-	}
+    }
 }

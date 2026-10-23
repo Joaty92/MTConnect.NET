@@ -6,7 +6,7 @@ using System.IO;
 using System.Reflection;
 
 #if NET5_0_OR_GREATER
-    using System.Runtime.Loader;
+using System.Runtime.Loader;
 #endif
 
 namespace MTConnect

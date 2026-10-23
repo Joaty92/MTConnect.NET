@@ -86,5 +86,5 @@ namespace MTConnect.Streams.Output
                 }
             }
         }
-    }  
+    }
 }

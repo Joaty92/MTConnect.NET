@@ -8,6 +8,9 @@ namespace MTConnect.Devices.Components
     /// <summary>
     /// {{description}}
     /// </summary>
+{{- if (deprecated) }}
+    [System.Obsolete("Deprecated in v{{deprecated}}")]
+{{- end }}
     public {{- if (is_abstract) }} abstract{{ end }} class {{name}} : {{ if (parent_type) }}{{parent_type}}{{else}}Component{{ end }} {{- if (is_organizer) }}, IOrganizerComponent{{ end }}
     {
         /// <summary>
@@ -29,6 +32,22 @@ namespace MTConnect.Devices.Components
         /// The description of this Component as defined by the MTConnect Standard.
         /// </summary>
         public override string TypeDescription => DescriptionText;
+{{- if (rules != null && (rules | array.size) > 0) }}
+
+        /// <summary>
+        /// The OCL constraint bodies attached to this Component in the
+        /// source SysML model, preserved verbatim so downstream consumers
+        /// can inspect the spec's raw validation rules at runtime.
+        /// </summary>
+        public new static readonly string[] Rules = new[]
+        {
+{{- for rule in rules }}{{ if (!for.last) }}
+            "{{ rule | string.replace `\` `\\` | string.replace `"` `\"` | string.replace "\r" "\\r" | string.replace "\n" "\\n" | string.replace "\t" "\\t" }}",
+{{- else }}
+            "{{ rule | string.replace `\` `\\` | string.replace `"` `\"` | string.replace "\r" "\\r" | string.replace "\n" "\\n" | string.replace "\t" "\\t" }}"
+{{- end }}{{ end }}
+        };
+{{- end }}
 {{- if (maximum_version_enum) }}
 
         /// <summary>

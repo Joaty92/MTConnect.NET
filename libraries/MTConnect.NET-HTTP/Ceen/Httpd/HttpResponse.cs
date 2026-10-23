@@ -453,12 +453,24 @@ namespace Ceen.Httpd
         /// <param name="data">The stream to copy.</param>
         /// <param name="contenttype">An optional content type to set. Throws an exception if the headers are already sent.</param>
         public Task WriteAllAsync(Stream data, string contenttype = null)
+            => WriteAllAsync(data, System.Threading.CancellationToken.None, contenttype);
+
+        /// <summary>
+        /// Copies the stream to the output while honouring the supplied cancellation token. Note that the stream is copied from the current position to the end, and the stream must report the length.
+        /// Same bug class as MTConnectPostResponseHandler.ReadRequestBytes (dime F-IMP-001): a client abort mid-response must short-circuit the copy rather than fully drain the response body into a disconnected socket.
+        /// Uses the universal (Stream, int bufferSize, CancellationToken) CopyToAsync overload (since .NET 4.5) so every supported TFM honours the token; the 81920 buffer matches the runtime default for the tokenless overload.
+        /// </summary>
+        /// <returns>The awaitable task</returns>
+        /// <param name="data">The stream to copy.</param>
+        /// <param name="cancellationToken">Cancellation token forwarded to the underlying CopyToAsync.</param>
+        /// <param name="contenttype">An optional content type to set. Throws an exception if the headers are already sent.</param>
+        public Task WriteAllAsync(Stream data, System.Threading.CancellationToken cancellationToken, string contenttype = null)
         {
             if (contenttype != null)
                 ContentType = contenttype;
             if (!HasSentHeaders)
                 ContentLength = data.Length - data.Position;
-            return data.CopyToAsync(m_wrappedoutstream);
+            return data.CopyToAsync(m_wrappedoutstream, 81920, cancellationToken);
         }
 
         /// <summary>

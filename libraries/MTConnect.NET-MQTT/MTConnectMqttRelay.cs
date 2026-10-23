@@ -82,10 +82,10 @@ namespace MTConnect.Mqtt
         /// <summary>Raised when the broker session is dropped (either by the relay, the broker, or a transport failure).</summary>
         public event EventHandler Disconnected;
 
-        #pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
+#pragma warning disable CS0067 // event is part of the public API surface, raised by subclasses
         /// <summary>Raised after each successful publish; the argument is the topic name.</summary>
         public event EventHandler<string> MessageSent;
-        #pragma warning restore CS0067
+#pragma warning restore CS0067
 
         /// <summary>Raised when establishing or maintaining the broker session throws.</summary>
         public event EventHandler<Exception> ConnectionError;

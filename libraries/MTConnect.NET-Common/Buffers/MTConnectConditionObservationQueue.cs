@@ -46,7 +46,7 @@ namespace MTConnect.Buffers
 
                     foreach (var item in items)
                     {
-                        x.AddRange(item.Value);              
+                        x.AddRange(item.Value);
                     }
 
                     // Remove Items from Queue
@@ -98,6 +98,6 @@ namespace MTConnect.Buffers
             }
 
             return false;
-        }   
+        }
     }
 }

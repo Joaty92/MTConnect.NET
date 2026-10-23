@@ -25,6 +25,78 @@ on:
 
 jobs:
   # ------------------------------------------------------------------
+  # Job 0 — dotnet format gate. Verifies the tree matches the default
+  # `dotnet format` ruleset with zero diff, so formatting drift
+  # (indentation, brace placement, whitespace) is caught at PR time
+  # instead of silently accumulating into the baseline every
+  # subsequent branch then has to inherit. The repo does not yet ship
+  # a root `.editorconfig`, so the enforced ruleset is whatever the
+  # SDK pinned by `actions/setup-dotnet` treats as its whitespace /
+  # C# formatting defaults; introducing a committed `.editorconfig`
+  # that freezes those rules against future SDK drift is tracked as a
+  # follow-up (see PR description). Uses the default "warn" severity
+  # — the same severity `dotnet format` applies with no --severity
+  # flag — rather than --severity info: at info severity dotnet format
+  # additionally tries to auto-fix long-standing Roslyn analyzer
+  # diagnostics (CA1859, CA1861, CA1018, ...) across the repo, which
+  # is a materially different (and, on this SDK/analyzer combination,
+  # occasionally crash-prone) undertaking from verifying whitespace /
+  # style formatting and is out of scope for this gate. `--verbosity
+  # diagnostic` is set on the verify step so the CI log names each
+  # offending file and rule when the gate fires — a contributor can
+  # then reproduce and fix locally without scrolling for the delta.
+  # A second verify step covers the two csprojs that ship with the
+  # `dotnet new` template but are not members of `MTConnect.NET.sln`;
+  # the template itself is a public-surface artifact for downstream
+  # consumers, so it belongs under the same gate as the main tree.
+  # Runs on the same draft-skip gate as the other jobs and does not
+  # depend on them, so a formatting-only fix gets fast feedback.
+  # ------------------------------------------------------------------
+  format:
+    name: format
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup .NET 8.0 + 9.0
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9  # v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Restore solution
+        run: dotnet restore MTConnect.NET.sln
+
+      - name: Verify solution format (dotnet format --verify-no-changes)
+        run: dotnet format MTConnect.NET.sln --verify-no-changes --no-restore --verbosity diagnostic
+
+      # `MTConnect.NET.sln` does not include the two csprojs that ship
+      # with the `dotnet new mtconnect.net-agent` template (the
+      # template descriptor + the generated project's csproj under
+      # `content/`). They are public-surface artifacts for downstream
+      # template consumers, so formatting drift there is exactly what
+      # the gate is meant to catch. Restore + verify them explicitly
+      # rather than adding them to the solution (which would compile
+      # them on every unrelated build and complicate the template
+      # packaging step). Each project gets its own restore + verify
+      # step so a failure names the specific template in the Actions
+      # step-summary panel rather than in the collapsed log.
+      - name: Restore template descriptor
+        run: dotnet restore templates/mtconnect.net-agent/MTConnect-NET-Agent-Template.csproj
+
+      - name: Restore template content project
+        run: dotnet restore templates/mtconnect.net-agent/content/MTConnect.NET-Embedded-Agent/Agent.csproj
+
+      - name: Verify template descriptor format
+        run: dotnet format templates/mtconnect.net-agent/MTConnect-NET-Agent-Template.csproj --verify-no-changes --no-restore --verbosity diagnostic
+
+      - name: Verify template content project format
+        run: dotnet format templates/mtconnect.net-agent/content/MTConnect.NET-Embedded-Agent/Agent.csproj --verify-no-changes --no-restore --verbosity diagnostic
+
+  # ------------------------------------------------------------------
   # Job 1 — unsharded unit + integration sweep on both OS legs.
   # Excludes Category=E2E altogether; the route walk is handled in
   # job 3 below. windows-latest additionally excludes
@@ -36,7 +108,7 @@ jobs:
   # paid exactly once across the whole workflow (in job 2 below).
   # ------------------------------------------------------------------
   build-and-test:
-    name: build-and-test-${{ matrix.os }}
+    name: build-and-test
     # Skip drafts: run only on push-to-master + ready (non-draft) PRs.
     # The pull_request `types` list above includes `ready_for_review`
     # so CI fires the moment a draft is flipped to ready.
@@ -323,7 +395,7 @@ jobs:
   # categories run exactly once (in job 1) across the workflow.
   # ------------------------------------------------------------------
   route-check-e2e:
-    name: route-check-e2e-shard${{ matrix.shard }}of${{ matrix.shardTotal }}
+    name: route-check-e2e
     if: github.event_name == 'push' || github.event.pull_request.draft == false
     needs: docs-prepare
     runs-on: ubuntu-latest
@@ -452,3 +524,93 @@ jobs:
             TestResults/**/coverage.cobertura.xml
           if-no-files-found: warn
           retention-days: 14
+
+  # ------------------------------------------------------------------
+  # Job 4 — Release-pack matrix gate. The build-and-test job above only
+  # exercises Debug, which compiles each csproj against a single TFM
+  # (net8.0 — see the per-project `<PropertyGroup Condition="…Debug">`
+  # blocks). Release / Package configurations multi-target net4x →
+  # net9.0; some diagnostics only fire on the legacy TFMs (CS0162 from
+  # `#if NET5_0_OR_GREATER` branches that go unreachable on net4x), and
+  # some only on net9.0 (SYSLIB0057 X509Certificate2 ctor obsoletion).
+  # The May-22 regression slipped through CI precisely because Debug
+  # never built net4x; this job runs `dotnet pack -c Release` across
+  # the full TFM matrix to catch the next regression class at PR time.
+  #
+  # Single-process (no shard), no docs dependency, same draft-skip
+  # gate as build-and-test. The pack output is written to a workflow-
+  # local `dist/` directory and discarded — the produced .nupkg files
+  # are not uploaded as artefacts; the gate's only output is the exit
+  # code.
+  # ------------------------------------------------------------------
+  release-pack:
+    name: release-pack
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup .NET 8.0 + 9.0
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9  # v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Restore solution
+        run: dotnet restore MTConnect.NET.sln
+
+      - name: Pack -c Release across multi-TFM
+        run: |
+          rm -rf dist
+          mkdir -p dist
+          dotnet pack MTConnect.NET.sln -c Release \
+            -p:VersionSuffix=ci-check \
+            -p:ContinuousIntegrationBuild=true \
+            -o dist 2>&1 | tee pack.log
+        shell: bash
+
+      # Surface a compact summary of every error / warning that
+      # tripped the pack. The `dotnet pack` step above pipes into
+      # `tee pack.log`; the unmasked exit propagates via the
+      # pipeline's PIPESTATUS through `set -o pipefail`, which is
+      # the GitHub-default for bash steps. This step only runs on
+      # failure, by design — when the pack is green, the produced
+      # nupkgs are not inspected further.
+      #
+      # The regex matches any MSBuild-shaped diagnostic —
+      # `error XX0000` / `warning XX0000` where XX is one or more
+      # letters (CS, CA, NU, SYSLIB, MSB, NETSDK, IL, XA, StyleCop,
+      # Roslyn analyzers, and mixed-case analyzer families like
+      # `xUnit1004` / `nunit1001` that ship lowercase prefixes).
+      # The prior `(CS|CA|NU|SYSLIB|MSB)` enumeration silently
+      # dropped every family outside that set and produced empty
+      # summaries when the pack failed on any of them. The
+      # broadened pattern is a strict superset so no failure
+      # family is masked. `[A-Za-z]+[0-9]+` keeps the "letters
+      # then digits" shape so bare `warning:` prose lines and
+      # counter lines like `2 Warning(s)` are not matched.
+      #
+      # The `head -100` cap is a paste-into-summary safety valve;
+      # when it triggers, a `showing 100 of N` breadcrumb makes
+      # the truncation explicit so a maintainer triaging a
+      # summary-visible slice knows the full failure set is
+      # larger than what is rendered.
+      - name: Surface pack errors (if any)
+        if: failure()
+        run: |
+          diag_pattern='\b(error|warning)[[:space:]]+[A-Za-z]+[0-9]+'
+          diag_total=$(grep -cE "$diag_pattern" pack.log 2>/dev/null || echo 0)
+          diag_unique=$(grep -E "$diag_pattern" pack.log 2>/dev/null | sort -u | wc -l)
+          echo "### Release-pack diagnostics" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$diag_unique" -gt 100 ]; then
+            echo "_Showing first 100 of ${diag_unique} unique diagnostics (${diag_total} total matching lines)._" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$diag_unique" -gt 0 ]; then
+            echo "_${diag_unique} unique diagnostics (${diag_total} total matching lines)._" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "$diag_pattern" pack.log \
+            | sort -u | head -100 >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+        shell: bash

@@ -268,6 +268,16 @@ namespace Ceen
         Task WriteAllAsync(Stream data, string contenttype = null);
 
         /// <summary>
+        /// Copies the stream to the output while honouring the supplied cancellation token. Note that the stream is copied from the current position to the end, and the stream must report the length.
+        /// Same bug class as MTConnectPostResponseHandler.ReadRequestBytes (dime F-IMP-001): a client abort mid-response must short-circuit the copy rather than fully drain the response body into a disconnected socket.
+        /// </summary>
+        /// <returns>The awaitable task</returns>
+        /// <param name="data">The stream to copy.</param>
+        /// <param name="cancellationToken">Cancellation token forwarded to the underlying CopyToAsync.</param>
+        /// <param name="contenttype">An optional content type to set. Throws an exception if the headers are already sent.</param>
+        Task WriteAllAsync(Stream data, System.Threading.CancellationToken cancellationToken, string contenttype = null);
+
+        /// <summary>
         /// Writes the byte array to the output.
         /// </summary>
         /// <returns>The awaitable task</returns>

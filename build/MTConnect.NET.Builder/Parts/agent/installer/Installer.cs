@@ -74,7 +74,7 @@
                         Environment.Exit(1);
                     }
                 }
-            }         
+            }
         }
 
         private static async Task CreateInstaller(string configurationId, bool verbose)

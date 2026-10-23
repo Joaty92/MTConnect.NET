@@ -46,7 +46,7 @@ namespace MTConnect.Buffers
 
                     foreach (var item in items)
                     {
-                        x.Add(item.Value);              
+                        x.Add(item.Value);
                     }
 
                     // Remove Items from Queue
@@ -69,28 +69,28 @@ namespace MTConnect.Buffers
                     if (!string.IsNullOrEmpty(hash))
                     {
 
-                            lock (_lock)
-                            {
-                                if (_items.Count > _limit) return false;
+                        lock (_lock)
+                        {
+                            if (_items.Count > _limit) return false;
 
-                                if (_items.TryGetValue(hash, out var _))
-                                {
-                                    _items.Remove(hash);
-                                    _items.Add(hash, new AssetQueueItem(index, asset, originalIndex));
-                                    return true;
-                                }
-                                else
-                                {
-                                    _items.Add(hash, new AssetQueueItem(index, asset, originalIndex));
-                                    return true;
-                                }
+                            if (_items.TryGetValue(hash, out var _))
+                            {
+                                _items.Remove(hash);
+                                _items.Add(hash, new AssetQueueItem(index, asset, originalIndex));
+                                return true;
+                            }
+                            else
+                            {
+                                _items.Add(hash, new AssetQueueItem(index, asset, originalIndex));
+                                return true;
                             }
                         }
                     }
+                }
                 catch { }
             }
 
             return false;
-        }   
+        }
     }
 }

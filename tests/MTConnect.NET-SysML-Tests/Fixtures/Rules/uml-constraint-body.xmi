@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Minimal XMI fixture exercising UmlConstraint.Body preservation
+  (vendored from mtconnect/MtconnectTranspiler v2.8). A single
+  packagedElement of xmi:type='uml:Class' carrying three
+  ownedRule xmi:type='uml:Constraint' children — each with a
+  distinct OCL body — plus one degenerate constraint whose
+  specification omits a body (should be filtered out). Consumed
+  by RulesEmissionTests to assert the parse-side wiring
+  populates MTConnectClassModel.Rules from the constraint chain.
+-->
+<xmi:XMI xmlns:xmi="http://www.omg.org/spec/XMI/20131001"
+         xmlns:uml="http://www.omg.org/spec/UML/20131001">
+  <uml:Model xmi:id="mdl" name="TestModel">
+    <packagedElement xmi:type="uml:Class" xmi:id="cls-with-rules" name="RuledClass" isAbstract="false">
+      <ownedRule xmi:type="uml:Constraint" xmi:id="rule-1">
+        <specification xmi:type="uml:OpaqueExpression" xmi:id="spec-1">
+          <language>OCL</language>
+          <body>self.name &lt;&gt; ''</body>
+        </specification>
+      </ownedRule>
+      <ownedRule xmi:type="uml:Constraint" xmi:id="rule-2">
+        <specification xmi:type="uml:OpaqueExpression" xmi:id="spec-2">
+          <language>OCL</language>
+          <body>self.value &gt;= 0</body>
+        </specification>
+      </ownedRule>
+      <ownedRule xmi:type="uml:Constraint" xmi:id="rule-3-empty">
+        <specification xmi:type="uml:OpaqueExpression" xmi:id="spec-3">
+          <language>OCL</language>
+          <body></body>
+        </specification>
+      </ownedRule>
+    </packagedElement>
+  </uml:Model>
+</xmi:XMI>

@@ -55,7 +55,7 @@ namespace MTConnect.Applications
 
 #if NET5_0_OR_GREATER
         /// <summary>NLog log-level applied to every internal logger.
-        /// Defaults to <see cref="LogLevel.Debug"/>; the <c>debug</c>
+        /// Defaults to <see cref="NLog.LogLevel.Debug"/>; the <c>debug</c>
         /// and <c>trace</c> CLI commands override it.</summary>
         protected LogLevel _logLevel = LogLevel.Debug;
 #else
@@ -433,32 +433,31 @@ namespace MTConnect.Applications
                 var freshlyConstructed = (existingAgentInformation == null);
                 var agentInformation = existingAgentInformation ?? new MTConnectAgentInformation();
 
-                // Apply explicit AgentUuid config override (if set). This
-                // pins the Agent meta-device UUID across restarts without
-                // requiring agent.information.json to be present on disk,
-                // and takes precedence over any UUID previously stored in
-                // that file. See MTConnect v2.7 XSD UuidType ("for its
-                // entire life") vs Header.instanceId (per-boot).
-                if (!string.IsNullOrEmpty(configuration.AgentUuid))
-                {
-                    agentInformation.Uuid = configuration.AgentUuid;
-                }
+                // Resolve the Agent meta-device UUID via the shared three-path
+                // algorithm in AgentUuidResolver so this application and the
+                // test fixtures exercise the same code and cannot silently
+                // drift. Path 1 (validated operator override) wins, else Path 2
+                // (validated persisted state), else Path 3 (deterministic
+                // UUID v5 derivation from ServiceName). Malformed input on
+                // either the override or the persisted path logs a warning
+                // and falls through — silently forwarding non-UUID content
+                // would break MTConnect Part 1's wire-XSD validation on every
+                // typed enum/decimal DataItem.
+                agentInformation.Uuid = AgentUuidResolver.Resolve(
+                    operatorSuppliedUuid: configuration.AgentUuid,
+                    persistedUuid: freshlyConstructed ? null : agentInformation.Uuid,
+                    agentName: configuration.ServiceName,
+                    hostname: System.Environment.MachineName,
+                    warn: message => _applicationLogger?.Warn(message));
 
-                // When no operator config override and no persisted state file,
-                // derive a deterministic UUID v5 (RFC 4122 §4.3, DNS namespace,
-                // SHA-1) from ServiceName:port so the Agent meta-device satisfies
-                // UuidType's "for it's entire life" annotation across every restart
-                // in the ephemeral-container deployment path.  Mirrors cppagent's
-                // name_generator prior art.  Port is 0 (sentinel) because
-                // IAgentApplicationConfiguration does not surface a listener-port
-                // property; the seed is still unique per ServiceName.
-                if (freshlyConstructed && string.IsNullOrEmpty(configuration.AgentUuid))
-                {
-                    agentInformation.Uuid = DeterministicAgentUuid.Derive(
-                        configuration.ServiceName,
-                        System.Environment.MachineName,
-                        port: 0);
-                }
+                // Happy-path visibility: operators reading the startup log after
+                // a UUID-related field-support ticket should see which UUID the
+                // agent adopted without having to reproduce the resolver's
+                // three-path decision from configuration state.
+                _applicationLogger?.Info(string.Format(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    "Agent meta-device UUID resolved: {0}",
+                    agentInformation.Uuid));
 
                 // Create Observation File Buffer
                 if (configuration.Durable)
@@ -597,7 +596,6 @@ namespace MTConnect.Applications
                         _agentLogger.Warn($"No Devices Found : Reading from : {configuration.Devices}");
                     }
                 }
-                
 
                 // Initilialize Processors
                 _processors = new MTConnectAgentProcessors(configuration);

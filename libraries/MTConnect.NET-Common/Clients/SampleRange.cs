@@ -29,7 +29,7 @@ namespace MTConnect.Clients
         public override string ToString()
         {
             string f = "From = {0}, To = {1}, Count = {2}";
-            return string.Format(f, From, To, Count); 
+            return string.Format(f, From, To, Count);
         }
     }
 }

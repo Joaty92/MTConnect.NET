@@ -45,7 +45,7 @@ namespace MTConnect.Headers
         /// <summary>
         /// A timestamp in 8601 format of the last update of the Device information for any device.
         /// </summary>
-        string DeviceModelChangeTime { get;  }
+        string DeviceModelChangeTime { get; }
 
         /// <summary>
         /// A flag indicating that the Agent that published the Response Document is operating in a test mode.

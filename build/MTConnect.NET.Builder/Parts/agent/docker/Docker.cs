@@ -74,7 +74,7 @@
                     Console.WriteLine();
                     Environment.Exit(1);
                 }
-            }         
+            }
         }
 
         private static async Task BuildImage(string configurationId, bool verbose)

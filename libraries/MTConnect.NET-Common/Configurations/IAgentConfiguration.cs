@@ -21,6 +21,11 @@ namespace MTConnect.Configurations
         /// </summary>
         string Path { get; }
 
+        /// <summary>
+        /// The value emitted as the <c>Header/@sender</c> attribute on MTConnect response documents (see MTConnect Part 1 §7). When null or empty, <see cref="MTConnect.Agents.MTConnectAgent"/> falls back to <see cref="System.Net.Dns.GetHostName"/>.
+        /// </summary>
+        string Sender { get; }
+
 
         /// <summary>
         /// The maximum number of Observations the agent can hold in its buffer
@@ -66,9 +71,28 @@ namespace MTConnect.Configurations
         bool EnableValidation { get; }
 
         /// <summary>
+        /// Gets or Sets the default Device (MTConnectDevices) validation level. 0 = Ignore, 1 = Warning, 2 = Remove, 3 = Strict
+        /// </summary>
+        DeviceValidationLevel DeviceValidationLevel { get; }
+
+        /// <summary>
         /// Gets the default Input (Observation or Asset) validation level. 0 = Ignore, 1 = Warning, 2 = Remove, 3 = Strict
         /// </summary>
         InputValidationLevel InputValidationLevel { get; }
+
+        /// <summary>
+        /// Gets whether an empty, null, or whitespace-only Result is preserved for Event DataItems whose
+        /// Type has a controlled vocabulary (for example EXECUTION, CONTROLLER_MODE). When <c>false</c>
+        /// (the default), such Results are coerced to <c>UNAVAILABLE</c> to satisfy the MTConnect
+        /// Standard requirement that a controlled-vocabulary Event's Result be a member of the
+        /// vocabulary. When <c>true</c>, the empty Result is published verbatim, which some
+        /// implementations rely on for parity with adapters that emit empty values.
+        /// Numeric DataItems (all Samples, and the numeric-typed Events enumerated by the SysML model)
+        /// are always coerced regardless of this flag, per the Part 2 "Sample MUST always be reported
+        /// in float" requirement. Free-form String Event DataItems (PROGRAM, MESSAGE, TOOL_ID,
+        /// ASSET_CHANGED, and every other non-vocabulary Type) always preserve the empty Result.
+        /// </summary>
+        bool AllowEmptyResultForEnumEvents { get; }
 
 
         /// <summary>

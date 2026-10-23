@@ -37,7 +37,7 @@ namespace MTConnect.SysML.CSharp
         /// rendered type.</param>
         /// <param name="umlEnumerationLiteral">Backing UML enumeration
         /// literal.</param>
-        public CompositionType(XmiDocument xmiDocument, string idPrefix, UmlEnumerationLiteral umlEnumerationLiteral) : base (xmiDocument, idPrefix, umlEnumerationLiteral) { }
+        public CompositionType(XmiDocument xmiDocument, string idPrefix, UmlEnumerationLiteral umlEnumerationLiteral) : base(xmiDocument, idPrefix, umlEnumerationLiteral) { }
 
 
         /// <summary>

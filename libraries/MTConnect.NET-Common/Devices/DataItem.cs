@@ -1202,6 +1202,121 @@ namespace MTConnect.Devices
         }
 
 
+        private static readonly Dictionary<string, DataItemValueClass> _eventValueClassCache = new Dictionary<string, DataItemValueClass>(StringComparer.OrdinalIgnoreCase);
+        private static readonly object _eventValueClassLock = new object();
+
+        // Numeric-typed Event DataItems per the MTConnect Standard SysML model. Each entry corresponds
+        // to an EventEnum class whose `result` attribute is typed `integer` or `float`
+        // (see build/sysml-model/MTConnectSysMLModel.xml). Events not in this set and lacking a
+        // controlled-vocabulary enum in the MTConnect.Observations.Events namespace are treated as
+        // free-form String values, for which the empty string is a permissible Result.
+        private static readonly HashSet<string> _numericEventTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "ACTIVATION_COUNT",
+            "AXIS_FEEDRATE_OVERRIDE",
+            "BLOCK_COUNT",
+            "CYCLE_COUNT",
+            "DEACTIVATION_COUNT",
+            "HARDNESS",
+            "LINE_NUMBER",
+            "LOAD_COUNT",
+            "MATERIAL_LAYER",
+            "MEASUREMENT_VALUE",
+            "NETWORK_PORT",
+            "PART_COUNT",
+            "PART_INDEX",
+            "PATH_FEEDRATE_OVERRIDE",
+            "PROGRAM_NEST_LEVEL",
+            "ROTARY_VELOCITY_OVERRIDE",
+            "THICKNESS",
+            "TOOL_OFFSET",
+            "TRANSFER_COUNT",
+            "UNCERTAINTY",
+            "UNLOAD_COUNT"
+        };
+
+
+        /// <summary>
+        /// Classifies the DataItem by the shape of value its Result carries, per the MTConnect Standard.
+        /// </summary>
+        /// <remarks>
+        /// The classification follows the MTConnect Standard, Part 2 - Devices Information Model:
+        /// <list type="bullet">
+        ///   <item><description>SAMPLE observations with a VALUE representation are Numeric: the
+        ///     Value Properties of Sample section states "Sample MUST always be reported in
+        ///     float".</description></item>
+        ///   <item><description>EVENT observations with a VALUE representation are classified from
+        ///     the DataItem's Type: an enumeration is inferred when a matching enum type exists in
+        ///     <c>MTConnect.Observations.Events</c>; the numeric-typed Event list mirrors the
+        ///     Standard SysML model; every other Type falls back to String, matching the default
+        ///     value type for <c>Observation::result</c>.</description></item>
+        ///   <item><description>SAMPLE or EVENT observations with a DATA_SET, TABLE, or
+        ///     TIME_SERIES representation carry structured payloads (Entries, Cells, Samples)
+        ///     rather than a single Result and are reported as String from this API (their
+        ///     coercion is not this classifier's concern - their inputs legitimately omit the
+        ///     Result key by design).</description></item>
+        ///   <item><description>CONDITION observations report a condition state rather than a
+        ///     Result value and are reported as String from this API (their coercion is governed
+        ///     by <see cref="MTConnect.Observations.ConditionLevel"/>).</description></item>
+        /// </list>
+        /// </remarks>
+        /// <param name="dataItem">The DataItem to classify. When null, <see cref="DataItemValueClass.String"/> is returned.</param>
+        /// <returns>The value class the DataItem's Result belongs to.</returns>
+        public static DataItemValueClass GetValueClass(IDataItem dataItem)
+        {
+            if (dataItem == null) return DataItemValueClass.String;
+
+            if (dataItem.Category == DataItemCategory.CONDITION) return DataItemValueClass.String;
+
+            // DATA_SET / TABLE / TIME_SERIES observations carry structured payloads rather than a
+            // single Result and are outside the empty-Result classifier's remit for both SAMPLE
+            // and EVENT categories.
+            if (dataItem.Representation != DataItemRepresentation.VALUE) return DataItemValueClass.String;
+
+            if (dataItem.Category == DataItemCategory.SAMPLE) return DataItemValueClass.Numeric;
+
+            if (dataItem.Category != DataItemCategory.EVENT) return DataItemValueClass.String;
+
+            return ClassifyEventValueByType(dataItem.Type);
+        }
+
+        private static DataItemValueClass ClassifyEventValueByType(string type)
+        {
+            if (string.IsNullOrEmpty(type)) return DataItemValueClass.String;
+
+            lock (_eventValueClassLock)
+            {
+                if (_eventValueClassCache.TryGetValue(type, out var cached)) return cached;
+            }
+
+            DataItemValueClass resolved;
+
+            // Enumeration: a corresponding enum type exists in the MTConnect.Observations.Events
+            // namespace with the DataItem Type's PascalCase name (for example, EXECUTION -> Execution).
+            var enumTypeName = $"MTConnect.Observations.Events.{type.ToPascalCase()}";
+            var enumType = typeof(DataItem).Assembly.GetType(enumTypeName, throwOnError: false, ignoreCase: false);
+            if (enumType != null && enumType.IsEnum)
+            {
+                resolved = DataItemValueClass.Enumeration;
+            }
+            else if (_numericEventTypes.Contains(type))
+            {
+                resolved = DataItemValueClass.Numeric;
+            }
+            else
+            {
+                resolved = DataItemValueClass.String;
+            }
+
+            lock (_eventValueClassLock)
+            {
+                _eventValueClassCache[type] = resolved;
+            }
+
+            return resolved;
+        }
+
+
         /// <summary>
         /// Determines whether the specified DataItem is valid for use under the given MTConnect Standard version.
         /// </summary>

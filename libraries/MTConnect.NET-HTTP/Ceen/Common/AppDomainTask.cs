@@ -48,32 +48,32 @@ namespace Ceen
             return m_tcs.Task;
         }
 
-		/// <summary>
-		/// Handles a task by invoking the AppDomainTask after completion
-		/// </summary>
-		/// <param name="sourcetask">The running task.</param>
-		/// <param name="handler">The handler for the result.</param>
-		/// <typeparam name="T">The data type parameter.</typeparam>
-		public static void HandleTask<T>(Task<T> sourcetask, AppDomainTask handler)
-		{
-			sourcetask.ContinueWith(task =>
-			{
-				if (task.IsCanceled)
-					handler.SetCancelled();
-				else if (task.IsFaulted)
-				{
-					if (task.Exception == null)
-						handler.SetFailed(new Exception());
+        /// <summary>
+        /// Handles a task by invoking the AppDomainTask after completion
+        /// </summary>
+        /// <param name="sourcetask">The running task.</param>
+        /// <param name="handler">The handler for the result.</param>
+        /// <typeparam name="T">The data type parameter.</typeparam>
+        public static void HandleTask<T>(Task<T> sourcetask, AppDomainTask handler)
+        {
+            sourcetask.ContinueWith(task =>
+            {
+                if (task.IsCanceled)
+                    handler.SetCancelled();
+                else if (task.IsFaulted)
+                {
+                    if (task.Exception == null)
+                        handler.SetFailed(new Exception());
 #pragma warning disable SYSLIB0050 // legacy AppDomain bridge: Formatter-based serialization gate is the documented contract
-					else if (task.Exception.GetType().IsSerializable)
+                    else if (task.Exception.GetType().IsSerializable)
 #pragma warning restore SYSLIB0050
-						handler.SetFailed(task.Exception);
-					else
-						handler.SetFailed(new Exception(task.Exception.Message));
-				}
-				else
-					handler.SetComplete(task.Result);
-			});
-		}
-	}
+                        handler.SetFailed(task.Exception);
+                    else
+                        handler.SetFailed(new Exception(task.Exception.Message));
+                }
+                else
+                    handler.SetComplete(task.Result);
+            });
+        }
+    }
 }

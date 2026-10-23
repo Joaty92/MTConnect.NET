@@ -119,5 +119,5 @@ namespace MTConnect.Streams
             }
             return l;
         }
-    }  
+    }
 }
