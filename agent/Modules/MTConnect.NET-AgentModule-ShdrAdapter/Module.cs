@@ -30,6 +30,12 @@ namespace MTConnect.Modules
         /// (<c>type: shdr-adapter</c>).
         /// </summary>
         public const string ConfigurationTypeId = "shdr-adapter";
+
+        /// <summary>
+        /// The class this module's <c>agent.config.yaml</c> settings are read into.
+        /// Lets tools such as the Web UI describe the module's options.
+        /// </summary>
+        public static readonly System.Type ConfigurationType = typeof(ShdrAdapterModuleConfiguration);
         private const string ModuleId = "SHDR Adapter";
 
         private readonly ShdrAdapterModuleConfiguration _configuration;
@@ -242,6 +248,9 @@ namespace MTConnect.Modules
 
         private void AdapterProtocolReceived(object sender, string message)
         {
+            // Runs for every SHDR line: skip building the message when Trace is disabled
+            if (!IsLogEnabled(MTConnectLogLevel.Trace)) return;
+
             var adapterClient = (ShdrAdapterClient)sender;
             Log(MTConnectLogLevel.Trace, $"ID = " + adapterClient.Id + " : " + message);
         }

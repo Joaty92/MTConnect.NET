@@ -4,6 +4,7 @@
 using MTConnect.Input;
 using MTConnect.Observations;
 using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -15,7 +16,6 @@ namespace MTConnect.Shdr
     /// </summary>
     public class ShdrTimeSeries : TimeSeriesObservationInput
     {
-        private static readonly Regex _deviceKeyRegex = new Regex("(.*):(.*)");
 
 
         /// <summary>
@@ -82,7 +82,7 @@ namespace MTConnect.Shdr
                 {
                     if (!IsUnavailable)
                     {
-                        return $"{GetTimestampString(Timestamp, timeZoneInfo: TimeZoneInfo)}|{target}|{Samples.Count()}|{SampleRate}|{PrintSamples(Samples)}";
+                        return $"{GetTimestampString(Timestamp, timeZoneInfo: TimeZoneInfo)}|{target}|{Samples.Count()}|{SampleRate.ToString(CultureInfo.InvariantCulture)}|{PrintSamples(Samples)}";
                     }
                     else
                     {
@@ -93,7 +93,7 @@ namespace MTConnect.Shdr
                 {
                     if (!IsUnavailable)
                     {
-                        return $"|{target}|{Samples.Count()}|{SampleRate}|{PrintSamples(Samples)}";
+                        return $"|{target}|{Samples.Count()}|{SampleRate.ToString(CultureInfo.InvariantCulture)}|{PrintSamples(Samples)}";
                     }
                     else
                     {
@@ -113,7 +113,7 @@ namespace MTConnect.Shdr
 
                 foreach (var sample in samples)
                 {
-                    pairs.Add(sample.ToString());
+                    pairs.Add(sample.ToString(CultureInfo.InvariantCulture));
                 }
 
                 return string.Join(" ", pairs);
@@ -132,23 +132,16 @@ namespace MTConnect.Shdr
             {
                 // Start reading input and read Timestamp first (if specified)
                 var x = ShdrLine.GetNextValue(input);
+                ShdrLine.ParseTimestampField(x, out var timestamp, out var duration);
 
-                if (DateTime.TryParse(x, null, System.Globalization.DateTimeStyles.AdjustToUniversal, out var timestamp))
-                {
-                    var y = ShdrLine.GetNextSegment(input);
-                    return FromLine(y, timestamp.ToUnixTime());
-                }
-                else
-                {
-                    var y = ShdrLine.GetNextSegment(input);
-                    return FromLine(y);
-                }
+                var y = ShdrLine.GetNextSegment(input);
+                return FromLine(y, timestamp, duration);
             }
 
             return null;
         }
 
-        private static ShdrTimeSeries FromLine(string input, long timestamp = 0)
+        private static ShdrTimeSeries FromLine(string input, long timestamp = 0, double duration = 0)
         {
             if (!string.IsNullOrEmpty(input))
             {
@@ -156,17 +149,18 @@ namespace MTConnect.Shdr
                 {
                     var timeSeries = new ShdrTimeSeries();
                     timeSeries.Timestamp = timestamp;
+                    timeSeries.Duration = duration;
 
                     // Set DataItemKey
                     var x = ShdrLine.GetNextValue(input);
                     var y = ShdrLine.GetNextSegment(input);
 
                     // Get Device Key (if specified). Example : Device01:avail
-                    var match = _deviceKeyRegex.Match(x);
-                    if (match.Success && match.Groups.Count > 2)
+                    var separator = x.LastIndexOf(':');
+                    if (separator >= 0)
                     {
-                        timeSeries.DeviceKey = match.Groups[1].Value;
-                        timeSeries.DataItemKey = match.Groups[2].Value;
+                        timeSeries.DeviceKey = x.Substring(0, separator);
+                        timeSeries.DataItemKey = x.Substring(separator + 1);
                     }
                     else
                     {
@@ -184,7 +178,8 @@ namespace MTConnect.Shdr
                         // Set Sample Rate
                         x = ShdrLine.GetNextValue(y);
                         y = ShdrLine.GetNextSegment(y);
-                        timeSeries.SampleRate = x.ToDouble();
+                        if (!double.TryParse(x, NumberStyles.Float, CultureInfo.InvariantCulture, out var sampleRate)) return null;
+                        timeSeries.SampleRate = sampleRate;
 
                         if (y != null)
                         {
@@ -192,11 +187,13 @@ namespace MTConnect.Shdr
                             if (!string.IsNullOrEmpty(x))
                             {
                                 var samples = new List<double>();
-                                var sampleSegments = x.Split(' ');
+                                var sampleSegments = x.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
 
                                 foreach (var sampleSegment in sampleSegments)
                                 {
-                                    samples.Add(sampleSegment.ToDouble());
+                                    // A token that is not a number makes the observation invalid (it used to become -1)
+                                    if (!double.TryParse(sampleSegment, NumberStyles.Float, CultureInfo.InvariantCulture, out var sample)) return null;
+                                    samples.Add(sample);
                                 }
 
                                 timeSeries.Samples = samples;

@@ -8,8 +8,7 @@ using MTConnect.Streams.Output;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
-using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -27,6 +26,9 @@ namespace MTConnect.Servers.Http
     {
         private const int _minInterval = 1; // 1 millisecond minimum interval
 
+        // Chunk headers are ASCII; Encoding.UTF8 would prefix every chunk with a byte order mark
+        private static readonly Encoding _headerEncoding = new UTF8Encoding(false);
+
 
         private readonly string _id = StringFunctions.RandomString(10);
         private readonly string _boundary = UnixDateTime.Now.ToString().ToMD5Hash();
@@ -37,12 +39,13 @@ namespace MTConnect.Servers.Http
         private readonly ulong _from;
         private readonly uint _count;
         private readonly int _interval;
-        private readonly int _heartbeat;
+        private readonly long _heartbeat; // Ticks
         private readonly string _documentFormat;
         private readonly IEnumerable<string> _acceptEncodings;
         private readonly IEnumerable<KeyValuePair<string, string>> _formatOptions;
 
         private CancellationTokenSource _stop;
+        private readonly SemaphoreSlim _dataSignal = new SemaphoreSlim(0, 1);
         private bool _isConnected;
         private bool _currentOnly;
 
@@ -61,6 +64,12 @@ namespace MTConnect.Servers.Http
 
         /// <summary>Extra HTTP response headers the hosting framework should send alongside the multipart body (e.g. CORS or cache directives).</summary>
         public IEnumerable<KeyValuePair<string, string>> Headers { get; set; }
+
+        /// <summary>Optional Device type filter (for example <c>Device</c> or <c>Agent</c>) applied to agent-wide streams; ignored when a device key is set.</summary>
+        public string DeviceType { get; set; }
+
+        /// <summary>The MTConnect version each chunk is produced for; <c>null</c> uses the Agent's version.</summary>
+        public Version MTConnectVersion { get; set; }
 
         /// <summary>Raised once the worker task begins emitting chunks; the argument is <see cref="Id"/>.</summary>
         public event EventHandler<string> StreamStarted;
@@ -118,7 +127,7 @@ namespace MTConnect.Servers.Http
             _from = from;
             _count = count;
             _interval = Math.Max(_minInterval, interval);
-            _heartbeat = heartbeat * 10000; // Convert from ms to Ticks
+            _heartbeat = (long)heartbeat * TimeSpan.TicksPerMillisecond; // long: an int overflows above ~214 seconds
             _documentFormat = documentFormat;
             _acceptEncodings = acceptEncodings;
             _formatOptions = formatOptions;
@@ -133,14 +142,8 @@ namespace MTConnect.Servers.Http
         /// </summary>
         public void StartSample(CancellationToken cancellationToken)
         {
-            _stop = new CancellationTokenSource();
-            cancellationToken.Register(() => { Stop(); });
-
-            _currentOnly = false;
-
-            _ = Task.Run(Worker, _stop.Token);
-
-            _isConnected = true;
+            var stop = Begin(false, cancellationToken);
+            _ = Task.Run(() => WorkerAsync(null, stop.Token));
         }
 
         /// <summary>
@@ -151,20 +154,19 @@ namespace MTConnect.Servers.Http
         /// </summary>
         public void StartCurrent(CancellationToken cancellationToken)
         {
-            _stop = new CancellationTokenSource();
-            cancellationToken.Register(() => { Stop(); });
-
-            _currentOnly = true;
-
-            _ = Task.Run(Worker, _stop.Token);
-
-            _isConnected = true;
+            var stop = Begin(true, cancellationToken);
+            _ = Task.Run(() => WorkerAsync(null, stop.Token));
         }
 
         /// <summary>Cancels the worker task and marks the stream disconnected. Safe to call from any thread, including before <c>Start*</c>.</summary>
         public void Stop()
         {
-            if (_stop != null) _stop.Cancel();
+            try
+            {
+                _stop?.Cancel();
+            }
+            catch (ObjectDisposedException) { }
+
             _isConnected = false;
         }
 
@@ -175,13 +177,7 @@ namespace MTConnect.Servers.Http
         /// </summary>
         public void RunSample(CancellationToken cancellationToken)
         {
-            _stop = new CancellationTokenSource();
-            cancellationToken.Register(() => { Stop(); });
-            _currentOnly = false;
-
-            Worker();
-
-            _isConnected = true;
+            RunSampleAsync(null, cancellationToken).GetAwaiter().GetResult();
         }
 
         /// <summary>
@@ -191,16 +187,55 @@ namespace MTConnect.Servers.Http
         /// </summary>
         public void RunCurrent()
         {
-            _stop = new CancellationTokenSource();
-            _currentOnly = true;
+            RunCurrent(CancellationToken.None);
+        }
 
-            Worker();
+        /// <summary>
+        /// Synchronous equivalent of <see cref="StartCurrent(CancellationToken)"/> that also stops when
+        /// <paramref name="cancellationToken"/> is cancelled.
+        /// </summary>
+        public void RunCurrent(CancellationToken cancellationToken)
+        {
+            RunCurrentAsync(null, cancellationToken).GetAwaiter().GetResult();
+        }
 
-            _isConnected = true;
+        /// <summary>
+        /// Runs the <c>sample</c> stream until it is stopped or <paramref name="cancellationToken"/> is cancelled,
+        /// without blocking a thread between chunks. When <paramref name="writeChunk"/> is supplied each chunk is
+        /// awaited before the next one is produced, so a slow client never receives overlapping writes.
+        /// <see cref="DocumentReceived"/> / <see cref="HeartbeatReceived"/> are still raised for every chunk.
+        /// </summary>
+        public Task RunSampleAsync(Func<MTConnectHttpStreamArgs, Task> writeChunk, CancellationToken cancellationToken)
+        {
+            var stop = Begin(false, cancellationToken);
+            return WorkerAsync(writeChunk, stop.Token);
+        }
+
+        /// <summary>
+        /// Runs the <c>current</c> stream until it is stopped or <paramref name="cancellationToken"/> is cancelled;
+        /// see <see cref="RunSampleAsync"/>.
+        /// </summary>
+        public Task RunCurrentAsync(Func<MTConnectHttpStreamArgs, Task> writeChunk, CancellationToken cancellationToken)
+        {
+            var stop = Begin(true, cancellationToken);
+            return WorkerAsync(writeChunk, stop.Token);
         }
 
 
-        private void Worker()
+        private CancellationTokenSource Begin(bool currentOnly, CancellationToken cancellationToken)
+        {
+            // Linked to the caller's token, so no registration is left on it after the stream ends
+            var previous = _stop;
+            _stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            previous?.Cancel();
+
+            _currentOnly = currentOnly;
+            _isConnected = true;
+
+            return _stop;
+        }
+
+        private async Task WorkerAsync(Func<MTConnectHttpStreamArgs, Task> writeChunk, CancellationToken cancellationToken)
         {
             if (_mtconnectAgent != null)
             {
@@ -210,7 +245,11 @@ namespace MTConnect.Servers.Http
                 var contentType = MimeTypes.Get(_documentFormat);
 
                 // Set Content Encoding
-                var contentEncoding = GetContentEncoding();
+                var contentEncoding = HttpContentEncoder.Select(_configuration, _acceptEncodings);
+
+                // Wake the stream when the agent adds an observation
+                EventHandler<Observations.IObservation> observationAdded = (s, o) => SignalData();
+                _mtconnectAgent.ObservationAdded += observationAdded;
 
                 try
                 {
@@ -218,122 +257,131 @@ namespace MTConnect.Servers.Http
 
                     ulong lastSequence = Math.Max(0, _from);
                     ulong nextSequence = lastSequence;
-                    long lastDocumentSent = 0;
                     long lastHeartbeatSent = 0;
                     long now = UnixDateTime.Now;
-                    IStreamsResponseOutputDocument document = null;
 
-                    while (!_stop.IsCancellationRequested)
+                    while (!cancellationToken.IsCancellationRequested)
                     {
                         stpw.Restart();
 
-                        // Read the MTConnectStreams document from the IMTConnectAgent
-                        if (!string.IsNullOrEmpty(_deviceKey))
-                        {
-                            if (_currentOnly)
-                            {
-                                if (!_dataItemIds.IsNullOrEmpty()) document = _mtconnectAgent.GetDeviceStreamsResponseDocument(_deviceKey, _dataItemIds);
-                                else document = _mtconnectAgent.GetDeviceStreamsResponseDocument(_deviceKey);
-                            }
-                            else
-                            {
-                                if (!_dataItemIds.IsNullOrEmpty()) document = _mtconnectAgent.GetDeviceStreamsResponseDocument(_deviceKey, _dataItemIds, nextSequence, long.MaxValue, _count);
-                                else document = _mtconnectAgent.GetDeviceStreamsResponseDocument(_deviceKey, nextSequence, ulong.MaxValue, _count);
-                            }
-                        }
-                        else
-                        {
-                            if (_currentOnly) document = _mtconnectAgent.GetDeviceStreamsResponseDocument();
-                            else document = _mtconnectAgent.GetDeviceStreamsResponseDocument(nextSequence, ulong.MaxValue, _count);
-                        }
+                        // Skip querying/formatting when the agent has nothing new and no heartbeat is due
+                        var skip = !_currentOnly &&
+                            nextSequence > 0 &&
+                            _mtconnectAgent.LastSequence < nextSequence &&
+                            (UnixDateTime.Now - lastHeartbeatSent) <= _heartbeat;
 
+                        // Read the MTConnectStreams document from the IMTConnectAgent
+                        var document = skip ? null : GetDocument(nextSequence);
                         if (document != null)
                         {
                             now = UnixDateTime.Now;
 
-                            var chunkStream = CreateChunk(document, _documentFormat, contentEncoding, _formatOptions);
+                            var isHeartbeat = document.Streams.IsNullOrEmpty() || document.ObservationCount < 1;
 
-                            // Create the HTTP Multipart Chunk (with boundary)
-                            var outputStream = CreateMultipartChunk(ref chunkStream, _boundary, contentType, contentEncoding);
-                            if (outputStream.Position > 0) outputStream.Seek(0, SeekOrigin.Begin);
-
-                            if (document.Streams.IsNullOrEmpty() || document.ObservationCount < 1)
+                            // Heartbeats are only sent once the heartbeat period has elapsed
+                            if (!isHeartbeat || (now - lastHeartbeatSent) > _heartbeat)
                             {
-                                // Check if document is null and time since last heartbeat exceeds the heartbeat specified
-                                if ((now - lastHeartbeatSent) > _heartbeat)
+                                var chunkStream = CreateChunk(document, _documentFormat, contentEncoding, _formatOptions);
+
+                                // Create the HTTP Multipart Chunk (with boundary)
+                                var outputStream = CreateMultipartChunk(ref chunkStream, _boundary, contentType, contentEncoding);
+                                if (outputStream.Position > 0) outputStream.Seek(0, SeekOrigin.Begin);
+
+                                stpw.Stop();
+                                var args = new MTConnectHttpStreamArgs(_id, outputStream, stpw.ElapsedMilliseconds);
+
+                                if (isHeartbeat)
                                 {
-                                    stpw.Stop();
-
-                                    // Raise heartbeat event and include the Multipart Chunk
-                                    HeartbeatReceived.Raise(this, new MTConnectHttpStreamArgs(_id, outputStream, stpw.ElapsedMilliseconds), StreamException);
-
-                                    // Reset the heartbeat timestamp
+                                    HeartbeatReceived.Raise(this, args, StreamException);
                                     lastHeartbeatSent = now;
                                 }
-                            }
-                            else
-                            {
-                                stpw.Stop();
-
-                                // Raise heartbeat event and include the Multipart Chunk
-                                DocumentReceived.Raise(this, new MTConnectHttpStreamArgs(_id, outputStream, stpw.ElapsedMilliseconds), StreamException);
-
-                                // Reset the document timestamp
-                                lastDocumentSent = now;
-
-                                if (document.ObservationCount > 0)
+                                else
                                 {
-                                    lastSequence = document.LastObservationSequence;
-                                    nextSequence = lastSequence + 1;
+                                    DocumentReceived.Raise(this, args, StreamException);
+
+                                    if (document.ObservationCount > 0)
+                                    {
+                                        lastSequence = document.LastObservationSequence;
+                                        nextSequence = lastSequence + 1;
+                                    }
                                 }
+
+                                // Wait for the chunk to be written before producing the next one
+                                if (writeChunk != null) await writeChunk(args);
                             }
                         }
 
-                        document = null;
+                        // Pause the stream for the specified Interval (the minimum time between parts)
+                        try
+                        {
+                            await Task.Delay(_interval, cancellationToken);
 
-                        // Pause the stream for the specified Interval
-                        Thread.Sleep(_interval);
+                            // Then, when there is nothing new, sleep until an observation is added or the
+                            // heartbeat is due instead of waking every interval
+                            if (!_currentOnly && nextSequence > 0 && _mtconnectAgent.LastSequence < nextSequence)
+                            {
+                                var untilHeartbeat = (_heartbeat - (UnixDateTime.Now - lastHeartbeatSent)) / TimeSpan.TicksPerMillisecond;
+                                if (untilHeartbeat > 0)
+                                {
+                                    await _dataSignal.WaitAsync((int)Math.Min(untilHeartbeat, int.MaxValue), cancellationToken);
+                                }
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
                     StreamException.Raise(this, ex, null);
-                    throw new Exception();
+                    throw;
+                }
+                finally
+                {
+                    _mtconnectAgent.ObservationAdded -= observationAdded;
+                    _isConnected = false;
                 }
 
                 StreamStopped.Raise(this, _id, StreamException);
             }
         }
 
-        private string GetContentEncoding()
+        private void SignalData()
         {
-            if (_configuration != null && !_configuration.ResponseCompression.IsNullOrEmpty())
+            // At most one pending signal
+            if (_dataSignal.CurrentCount == 0)
             {
-                // Gzip
-                if (_configuration.ResponseCompression.Contains(HttpResponseCompression.Gzip) &&
-                    !_acceptEncodings.IsNullOrEmpty() && _acceptEncodings.Contains(HttpContentEncodings.Gzip))
+                try { _dataSignal.Release(); } catch (SemaphoreFullException) { }
+            }
+        }
+
+        private IStreamsResponseOutputDocument GetDocument(ulong nextSequence)
+        {
+            var hasDataItemIds = !_dataItemIds.IsNullOrEmpty();
+
+            if (!string.IsNullOrEmpty(_deviceKey))
+            {
+                if (_currentOnly)
                 {
-                    return HttpContentEncodings.Gzip;
+                    if (hasDataItemIds) return _mtconnectAgent.GetDeviceStreamsResponseDocument(_deviceKey, _dataItemIds, mtconnectVersion: MTConnectVersion);
+                    return _mtconnectAgent.GetDeviceStreamsResponseDocument(_deviceKey, mtconnectVersion: MTConnectVersion);
                 }
 
-#if NET5_0_OR_GREATER
-                // Brotli
-                else if (_configuration.ResponseCompression.Contains(HttpResponseCompression.Br) &&
-                    !_acceptEncodings.IsNullOrEmpty() && _acceptEncodings.Contains(HttpContentEncodings.Brotli))
-                {
-                    return HttpContentEncodings.Brotli;
-                }
-#endif
-
-                // Deflate
-                else if (_configuration.ResponseCompression.Contains(HttpResponseCompression.Deflate) &&
-                    !_acceptEncodings.IsNullOrEmpty() && _acceptEncodings.Contains(HttpContentEncodings.Deflate))
-                {
-                    return HttpContentEncodings.Deflate;
-                }
+                if (hasDataItemIds) return _mtconnectAgent.GetDeviceStreamsResponseDocument(_deviceKey, _dataItemIds, nextSequence, ulong.MaxValue, _count, MTConnectVersion);
+                return _mtconnectAgent.GetDeviceStreamsResponseDocument(_deviceKey, nextSequence, ulong.MaxValue, _count, MTConnectVersion);
             }
 
-            return null;
+            // Agent-wide streams apply the path filter and device type too
+            if (_currentOnly)
+            {
+                if (hasDataItemIds) return _mtconnectAgent.GetDeviceStreamsResponseDocument(_dataItemIds, mtconnectVersion: MTConnectVersion, deviceType: DeviceType);
+                return _mtconnectAgent.GetDeviceStreamsResponseDocument(mtconnectVersion: MTConnectVersion, deviceType: DeviceType);
+            }
+
+            if (hasDataItemIds) return _mtconnectAgent.GetDeviceStreamsResponseDocument(_dataItemIds, nextSequence, ulong.MaxValue, _count, MTConnectVersion, DeviceType);
+            return _mtconnectAgent.GetDeviceStreamsResponseDocument(nextSequence, ulong.MaxValue, _count, MTConnectVersion, DeviceType);
         }
 
         private static Stream CreateChunk(IStreamsResponseOutputDocument document, string documentFormat, string contentEncoding, IEnumerable<KeyValuePair<string, string>> formatOptions)
@@ -342,58 +390,30 @@ namespace MTConnect.Servers.Http
             {
                 // Format Response Document using the specified DocumentFormatter
                 var result = Formatters.ResponseDocumentFormatter.Format(documentFormat, ref document, formatOptions);
-                if (result.Success)
+                if (result.Success && result.Content != null)
                 {
-                    var bytes = result.Content;
-                    MemoryStream outputStream;
-
-                    try
-                    {
-                        switch (contentEncoding)
-                        {
-                            case HttpContentEncodings.Gzip:
-
-                                outputStream = new MemoryStream();
-                                using (var zip = new GZipStream(outputStream, CompressionMode.Compress, true))
-                                {
-                                    zip.CopyTo(bytes);
-                                }
-                                return outputStream;
-
-#if NET5_0_OR_GREATER
-                            case HttpContentEncodings.Brotli:
-
-                                outputStream = new MemoryStream();
-                                using (var zip = new BrotliStream(outputStream, CompressionMode.Compress, true))
-                                {
-                                    zip.CopyTo(bytes);
-                                }
-                                return outputStream;
-#endif
-
-                            case HttpContentEncodings.Deflate:
-
-                                outputStream = new MemoryStream();
-                                using (var zip = new DeflateStream(outputStream, CompressionMode.Compress, true))
-                                {
-                                    zip.CopyTo(bytes);
-                                }
-                                return outputStream;
-                        }
-                    }
-                    catch { }
-
-                    return bytes;
+                    return EncodeChunk(result.Content, contentEncoding);
                 }
+
+                // Surface the formatter's reasons rather than failing later on a null chunk
+                var errors = result.Errors.IsNullOrEmpty() ? "no details" : string.Join("; ", result.Errors);
+                throw new InvalidOperationException(string.Format("Failed to format {0} stream chunk: {1}", documentFormat, errors));
             }
 
             return null;
         }
 
+        // Compresses the formatted chunk with the negotiated content encoding (or returns it unchanged when there is none)
+        private static Stream EncodeChunk(Stream content, string contentEncoding)
+        {
+            return HttpContentEncoder.Encode(content, contentEncoding);
+        }
+
         private static Stream CreateMultipartChunk(ref Stream body, string boundary, string contentType, string contentEncoding)
         {
-            var outputStream = new MemoryStream();
-            using (var writer = new StreamWriter(outputStream, System.Text.Encoding.UTF8, (int)body.Length + 1000, leaveOpen: true))
+            // Sized for the part headers + body + CRLF so the buffer is not regrown while copying the body
+            var outputStream = new MemoryStream((int)Math.Min(int.MaxValue, body.Length + 256));
+            using (var writer = new StreamWriter(outputStream, _headerEncoding, 1024, leaveOpen: true))
             {
                 writer.NewLine = "\r\n";
 
@@ -418,7 +438,7 @@ namespace MTConnect.Servers.Http
 
                 // Add Content Length Line
                 writer.Write("Content-length: ");
-                writer.Write(body.Length + 3); // Set Content-length to body.Length + 3 (newline)
+                writer.Write(body.Length); // The CRLF after the body ends the part and is not part of its content
                 writer.WriteLine();
                 writer.WriteLine();
                 writer.Flush();
@@ -427,11 +447,12 @@ namespace MTConnect.Servers.Http
                 if (body.Position > 0) body.Seek(0, SeekOrigin.Begin);
                 body.CopyTo(outputStream);
 
-                // Add NewLine
-                outputStream.WriteByte(10);
+                // End the part with CRLF
                 outputStream.WriteByte(13);
                 outputStream.WriteByte(10);
             }
+
+            body.Dispose();
 
             return outputStream;
         }

@@ -13,7 +13,6 @@ namespace MTConnect.Shdr
     /// </summary>
     public class ShdrFaultState : ObservationInput
     {
-        private static readonly Regex _deviceKeyRegex = new Regex("(.*):(.*)");
 
 
         /// <summary>
@@ -114,7 +113,7 @@ namespace MTConnect.Shdr
             )
         {
             Level = level;
-            if (!string.IsNullOrEmpty(nativeCode)) ConditionId = conditionId;
+            if (!string.IsNullOrEmpty(conditionId)) ConditionId = conditionId;
             if (!string.IsNullOrEmpty(nativeCode)) NativeCode = nativeCode;
             if (!string.IsNullOrEmpty(nativeSeverity)) NativeSeverity = nativeSeverity;
             Qualifier = qualifier;
@@ -133,7 +132,7 @@ namespace MTConnect.Shdr
             )
         {
             Level = level;
-            if (!string.IsNullOrEmpty(nativeCode)) ConditionId = conditionId;
+            if (!string.IsNullOrEmpty(conditionId)) ConditionId = conditionId;
             if (!string.IsNullOrEmpty(nativeCode)) NativeCode = nativeCode;
             if (!string.IsNullOrEmpty(nativeSeverity)) NativeSeverity = nativeSeverity;
             Qualifier = qualifier;
@@ -153,7 +152,7 @@ namespace MTConnect.Shdr
             )
         {
             Level = level;
-            if (!string.IsNullOrEmpty(nativeCode)) ConditionId = conditionId;
+            if (!string.IsNullOrEmpty(conditionId)) ConditionId = conditionId;
             if (!string.IsNullOrEmpty(nativeCode)) NativeCode = nativeCode;
             if (!string.IsNullOrEmpty(nativeSeverity)) NativeSeverity = nativeSeverity;
             Qualifier = qualifier;
@@ -204,7 +203,7 @@ namespace MTConnect.Shdr
                 // If no ConditionId or NativeCode specified, then create hash of Message
                 if (string.IsNullOrEmpty(identifier)) identifier = Message?.ToMD5Hash();
 
-                var message = !string.IsNullOrEmpty(Message) ? Message.Replace("|", @"\|") : "";
+                var message = !string.IsNullOrEmpty(Message) ? ShdrLine.QuoteValue(Message) : "";
                 var qualifier = Qualifier != ConditionQualifier.NOT_SPECIFIED ? Qualifier.ToString() : "";
 
                 string line;
@@ -252,26 +251,16 @@ namespace MTConnect.Shdr
 
                 // Start reading input and read Timestamp first (if specified)
                 var x = ShdrLine.GetNextValue(input);
+                ShdrLine.ParseTimestampField(x, out var timestamp, out var duration);
 
-                if (!string.IsNullOrEmpty(x))
-                {
-                    if (DateTime.TryParse(x, null, System.Globalization.DateTimeStyles.AdjustToUniversal, out var timestamp))
-                    {
-                        var y = ShdrLine.GetNextSegment(input);
-                        return FromLine(y, timestamp.ToUnixTime());
-                    }
-                }
-                else
-                {
-                    var y = ShdrLine.GetNextSegment(input);
-                    return FromLine(y);
-                }
+                var y = ShdrLine.GetNextSegment(input);
+                return FromLine(y, timestamp, duration);
             }
 
             return null;
         }
 
-        private static ShdrFaultState FromLine(string input, long timestamp = 0)
+        private static ShdrFaultState FromLine(string input, long timestamp = 0, double duration = 0)
         {
             if (!string.IsNullOrEmpty(input))
             {
@@ -279,30 +268,29 @@ namespace MTConnect.Shdr
                 {
                     var condition = new ShdrFaultState();
                     condition.Timestamp = timestamp;
+                    condition.Duration = duration;
 
                     // Set DataItemKey
                     var x = ShdrLine.GetNextValue(input);
                     var y = ShdrLine.GetNextSegment(input);
 
                     // Get Device Key (if specified). Example : Device01:avail
-                    var match = _deviceKeyRegex.Match(x);
-                    if (match.Success && match.Groups.Count > 2)
+                    var separator = x.LastIndexOf(':');
+                    if (separator >= 0)
                     {
-                        condition.DeviceKey = match.Groups[1].Value;
-                        condition.DataItemKey = match.Groups[2].Value;
+                        condition.DeviceKey = x.Substring(0, separator);
+                        condition.DataItemKey = x.Substring(separator + 1);
                     }
                     else
                     {
                         condition.DataItemKey = x;
                     }
 
-                    // Set Condition Level. Case-insensitive (ignoreCase: true) to match the rest of
-                    // the codebase (ConvertEnum) and the reference cppagent's lenient parsing: an
-                    // adapter that sends "fault" instead of "FAULT" otherwise throws here, the catch
-                    // swallows it, FromLine returns null, and the line is dropped silently.
+                    // Set Condition Level
                     x = ShdrLine.GetNextValue(y);
                     y = ShdrLine.GetNextSegment(y);
-                    condition.Level = (ConditionLevel)Enum.Parse(typeof(ConditionLevel), x, true);
+                    if (x == null || !Enum.TryParse<ConditionLevel>(x.Trim(), true, out var level)) return null;
+                    condition.Level = level;
 
                     if (y != null)
                     {

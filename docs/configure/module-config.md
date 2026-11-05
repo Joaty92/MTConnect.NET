@@ -13,6 +13,9 @@ The module set:
 - [Sparkplug B relay](#sparkplug-b-relay) — outbound Sparkplug B edge node *(fork addition)*.
 - [OPC UA adapter](#opc-ua-adapter) — inbound OPC UA subscription client *(fork addition)*.
 - [Haas Ethernet adapter](#haas-ethernet-adapter) — inbound Haas Q-code poller *(fork addition)*.
+- [Haas adapter](#haas-adapter) — reads a Haas CNC control over Ethernet or RS-232.
+- [Fanuc adapter](#fanuc-adapter) — reads a Fanuc CNC using FOCAS over Ethernet.
+- [Tormach adapter](#tormach-adapter) — reads a Tormach PathPilot controller.
 
 Every module is declared in `agent.config.yaml` under `modules:` as a single-key map. The key is the module's name; the value is the module's config object.
 
@@ -271,6 +274,46 @@ Run it from source (`pip install -r requirements.txt`, then `python main.py`) or
 
 `pollOnce: true` fetches a value once per connection session (identity values); `pollEvery: <seconds>` throttles slow-moving counters. On transport failure the module flags **every** data item `UNAVAILABLE` (not just `avail`) and skips the rest of the cycle; on recovery the poll cycle restarts so availability returns before fresh data, and the once-per-session identity values are re-polled. Observations are stamped with the agent host clock at receipt (Q-codes carry no machine time) — keep the agent host NTP-synced.
 
+## Haas adapter
+
+Reads a Haas CNC control directly over Ethernet or RS-232 using Haas Q-commands. Module key: `haas-adapter`. Implementation: `MTConnect.NET-AgentModule-HaasAdapter`. See [Haas adapter](/modules/haas-adapter) for every key and the DataItems it reports.
+
+```yaml
+- haas-adapter:
+    deviceKey: VF2                 # the Device observations are added to (created by default).
+    server: 192.168.1.60           # Haas control address (Ethernet).
+    port: 5051                     # Q-command port (Setting 143).
+    readInterval: 1000             # delay between read cycles (ms).
+    slowReadInterval: 10000        # delay between reads of timers, counters and version (ms).
+    units: inch                    # units the control reports positions in (Setting 9).
+    axes: [X, Y, Z]                # axes to read positions for (X, Y, Z, A, B, C).
+```
+
+## Fanuc adapter
+
+Reads a Fanuc CNC directly using FOCAS over Ethernet. Module key: `fanuc-adapter`. Implementation: `MTConnect.NET-AgentModule-FanucAdapter`. The Fanuc FOCAS libraries (`Fwlib64.dll` / `Fwlib32.dll`) are not included and must be copied next to the agent. See [Fanuc adapter](/modules/fanuc-adapter) for every key and the DataItems it reports.
+
+```yaml
+- fanuc-adapter:
+    deviceKey: M1                  # the Device observations are added to (created by default).
+    server: 192.168.1.70           # CNC address.
+    port: 8193                     # FOCAS port.
+    readInterval: 1000             # delay between read cycles (ms).
+    workPositions: false           # also report absolute (work) positions.
+```
+
+## Tormach adapter
+
+Reads a Tormach PathPilot controller through the PathPilot status server (`pathpilot/pathpilot_status_server.py`), which runs on the controller and streams the LinuxCNC status over TCP. Module key: `tormach-adapter`. Implementation: `MTConnect.NET-AgentModule-TormachAdapter`. See [Tormach adapter](/modules/tormach-adapter) for installing the status server, every key, and the DataItems it reports.
+
+```yaml
+- tormach-adapter:
+    deviceKey: PCNC1100            # the Device observations are added to (created by default).
+    server: 192.168.1.80           # PathPilot controller address.
+    port: 7890                     # status server port.
+    workPositions: false           # also report work coordinate positions.
+```
+
 ## Configuration objects
 
 Each module's YAML keys deserialize into a configuration class:
@@ -286,6 +329,9 @@ Each module's YAML keys deserialize into a configuration class:
 | `sparkplug-relay` | `MTConnect.Configurations.SparkplugBRelayModuleConfiguration` *(fork addition — no generated API page)* |
 | `opcua-adapter` | `MTConnect.Configurations.OpcUaAdapterModuleConfiguration` *(fork addition — no generated API page)* |
 | `haas-ethernet` | `MTConnect.Configurations.HaasEthernetAdapterModuleConfiguration` *(fork addition — no generated API page)* |
+| `haas-adapter` | [`MTConnect.Configurations.HaasAdapterModuleConfiguration`](/api/MTConnect.Configurations.HaasAdapterModuleConfiguration) |
+| `fanuc-adapter` | [`MTConnect.Configurations.FanucAdapterModuleConfiguration`](/api/MTConnect.Configurations.FanucAdapterModuleConfiguration) |
+| `tormach-adapter` | [`MTConnect.Configurations.TormachAdapterModuleConfiguration`](/api/MTConnect.Configurations.TormachAdapterModuleConfiguration) |
 
 Programmatic configuration uses the class directly:
 

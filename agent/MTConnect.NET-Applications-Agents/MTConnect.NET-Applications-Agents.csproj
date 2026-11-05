@@ -52,6 +52,8 @@
 		<ProjectReference Include="..\..\libraries\MTConnect.NET-JSON\MTConnect.NET-JSON.csproj" />
 		<ProjectReference Include="..\..\libraries\MTConnect.NET-Services\MTConnect.NET-Services.csproj" />
 		<ProjectReference Include="..\..\libraries\MTConnect.NET-XML\MTConnect.NET-XML.csproj" />
+		<ProjectReference Include="..\Modules\MTConnect.NET-AgentModule-FanucAdapter\MTConnect.NET-AgentModule-FanucAdapter.csproj" />
+		<ProjectReference Include="..\Modules\MTConnect.NET-AgentModule-HaasAdapter\MTConnect.NET-AgentModule-HaasAdapter.csproj" />
 		<ProjectReference Include="..\Modules\MTConnect.NET-AgentModule-HttpAdapter\MTConnect.NET-AgentModule-HttpAdapter.csproj" />
 		<ProjectReference Include="..\Modules\MTConnect.NET-AgentModule-HttpServer\MTConnect.NET-AgentModule-HttpServer.csproj" />
 		<ProjectReference Include="..\Modules\MTConnect.NET-AgentModule-MqttAdapter\MTConnect.NET-AgentModule-MqttAdapter.csproj" />
@@ -64,6 +66,8 @@
 			Condition="'$(TargetFramework)' == 'net6.0' OR '$(TargetFramework)' == 'net7.0' OR '$(TargetFramework)' == 'net8.0' OR '$(TargetFramework)' == 'net9.0'" />
 		<ProjectReference Include="..\Modules\MTConnect.NET-AgentModule-HaasEthernet\MTConnect.NET-AgentModule-HaasEthernet.csproj"
 			Condition="'$(TargetFramework)' == 'net6.0' OR '$(TargetFramework)' == 'net7.0' OR '$(TargetFramework)' == 'net8.0' OR '$(TargetFramework)' == 'net9.0'" />
+		<ProjectReference Include="..\Modules\MTConnect.NET-AgentModule-TormachAdapter\MTConnect.NET-AgentModule-TormachAdapter.csproj" />
+		<ProjectReference Include="..\Modules\MTConnect.NET-AgentModule-WebUI\MTConnect.NET-AgentModule-WebUI.csproj" />
 		<ProjectReference Include="..\Processors\MTConnect.NET-AgentProcessor-Python\MTConnect.NET-AgentProcessor-Python.csproj" />
 	</ItemGroup>
 
